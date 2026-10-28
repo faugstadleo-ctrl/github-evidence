@@ -30,7 +30,7 @@ app.post('/api/fetch', async (req, res) => {
   if (token) headers['Authorization'] = `token ${token}`;
 
   try {
-    const url = `https://api.github.com/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=30`;
+    const url = `https://api.github.com/repos/${owner}/${repo}/pulls?state=closed&sort=updated&direction=desc&per_page=100`;
     const response = await fetch(url, { headers });
     if (!response.ok) {
       const err = await response.text();
@@ -42,9 +42,8 @@ app.post('/api/fetch', async (req, res) => {
     const evidence = [];
 
     for (const pr of pulls) {
-      if (!pr.merged_at) continue; // only merged ones
+      if (!pr.merged_at) continue;
 
-      // Check reviews
       const reviewsUrl = pr.url + '/reviews';
       const reviewsRes = await fetch(reviewsUrl, { headers });
       let reviews = [];
@@ -66,7 +65,6 @@ app.post('/api/fetch', async (req, res) => {
       });
     }
 
-    // Store in history
     evidenceHistory.push({
       collected_at: collectedAt,
       owner,
@@ -75,13 +73,21 @@ app.post('/api/fetch', async (req, res) => {
       items: evidence
     });
 
-    // Keep only last 10 collections
     if (evidenceHistory.length > 10) evidenceHistory.shift();
 
     res.json({ collected_at: collectedAt, evidence });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// API: Get one history entry by index
+app.get('/api/history/:index', (req, res) => {
+  const index = parseInt(req.params.index, 10);
+  if (isNaN(index) || index < 0 || index >= evidenceHistory.length) {
+    return res.status(404).json({ error: 'Not found' });
+  }
+  res.json(evidenceHistory[index]);
 });
 
 // API: Get history
