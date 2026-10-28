@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GitHub Evidence</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; }
+    h1 { margin-bottom: 0.5rem; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    label { display: block; margin: 10px 0 4px; font-weight: 500; }
+    input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    button { background: #0366d6; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
+    button:hover { background: #0256b9; }
+    button.secondary { background: #6c757d; margin-left: 8px; }
+    .pr { border-bottom: 1px solid #eee; padding: 12px 0; }
+    .pr:last-child { border-bottom: none; }
+    .ok { color: #28a745; font-weight: 600; }
+    .missing { color: #dc3545; font-weight: 600; }
+    .meta { color: #666; font-size: 0.9em; }
+    .error { color: #dc3545; }
+  </style>
+</head>
+<body>
+  <h1>GitHub Evidence</h1>
+  <p>Collect proof that merged pull requests were reviewed.</p>
+
+  <div class="card">
+    <label>Owner (username or org)</label>
+    <input id="owner" placeholder="e.g. octocat" value="octocat">
+    <label>Repo</label>
+    <input id="repo" placeholder="e.g. Hello-World" value="Hello-World">
+    <label>Personal Access Token (optional, for private repos or higher rate limits)</label>
+    <input id="token" type="password" placeholder="ghp_...">
+    <button onclick="fetchEvidence()">Fetch Evidence</button>
+    <button class="secondary" onclick="exportEvidence()">Export Latest</button>
+  </div>
+
+  <div id="status"></div>
+  <div id="results"></div>
+
+  <script>
+    async function fetchEvidence() {
+      const owner = document.getElementById('owner').value.trim();
+      const repo = document.getElementById('repo').value.trim();
+      const token = document.getElementById('token').value.trim();
+      const status = document.getElementById('status');
+      const results = document.getElementById('results');
+
+      if (!owner || !repo) {
+        status.innerHTML = '<p class="error">Owner and repo are required.</p>';
+        return;
+      }
+
+      status.innerHTML = '<p>Fetching...</p>';
+      results.innerHTML = '';
+
+      try {
+        const res = await fetch('/api/fetch', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ owner, repo, token: token || undefined })
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Failed');
+
+        status.innerHTML = `<p>Collected at ${new Date(data.collected_at).toLocaleString()} — ${data.evidence.length} merged PRs</p>`;
+
+        if (data.evidence.length === 0) {
+          results.innerHTML = '<div class="card"><p>No merged pull requests found.</p></div>';
+          return;
+        }
+
+        let html = '<div class="card">';
+        data.evidence.forEach(pr => {
+          const reviewStatus = pr.has_review
+            ? `<span class="ok">Reviewed by ${pr.reviewers.join(', ') || 'someone'}</span>`
+            : `<span class="missing">No review</span>`;
+          html += `
+            <div class="pr">
+              <strong><a href="${pr.url}" target="_blank">#${pr.id} ${pr.title}</a></strong><br>
+              ${reviewStatus}<br>
+              <span class="meta">Merged: ${new Date(pr.merged_at).toLocaleString()}</span>
+            </div>`;
+        });
+        html += '</div>';
+        results.innerHTML = html;
+      } catch (err) {
+        status.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+      }
+    }
+
+    function exportEvidence() {
+      window.location.href = '/api/export';
+    }
+  </script>
+</body>
+</html>
