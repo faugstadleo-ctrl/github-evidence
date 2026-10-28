@@ -42,9 +42,62 @@
   <div id="results"></div>
 
   <h2>Previous collections</h2>
+  <p class="meta">Saved in this browser. They stay after a refresh or a site restart.</p>
   <div id="history" class="card">Loading...</div>
 
   <script>
+    const STORAGE_KEY = 'github-evidence-history';
+    const MAX_HISTORY = 20;
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&' + 'amp;')
+        .replace(/</g, '&' + 'lt;')
+        .replace(/>/g, '&' + 'gt;')
+        .replace(/"/g, '&' + 'quot;');
+    }
+
+    function loadStored() {
+      try {
+        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed : [];
+      } catch {
+        return [];
+      }
+    }
+
+    function saveStored(list) {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+    }
+
+    function remember(entry) {
+      const list = loadStored();
+      list.push(entry);
+      while (list.length > MAX_HISTORY) list.shift();
+      saveStored(list);
+    }
+
+    function renderItems(items) {
+      if (!items || items.length === 0) {
+        return '<div class="card"><p>No merged pull requests found.</p></div>';
+      }
+      let html = '<div class="card">';
+      items.forEach(pr => {
+        const reviewers = (pr.reviewers || []).join(', ');
+        const reviewStatus = pr.has_review
+          ? `<span class="ok">Reviewed by ${escapeHtml(reviewers || 'someone')}</span>`
+          : `<span class="missing">No review</span>`;
+        html += `
+          <div class="pr">
+            <strong><a href="${escapeHtml(pr.url)}" target="_blank" rel="noopener">#${escapeHtml(pr.id)} ${escapeHtml(pr.title)}</a></strong><br>
+            ${reviewStatus}<br>
+            <span class="meta">Merged: ${escapeHtml(new Date(pr.merged_at).toLocaleString())}</span>
+          </div>`;
+      });
+      html += '</div>';
+      return html;
+    }
+
     async function fetchEvidence() {
       const owner = document.getElementById('owner').value.trim();
       const repo = document.getElementById('repo').value.trim();
@@ -69,96 +122,71 @@
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed');
 
+        const entry = {
+          collected_at: data.collected_at,
+          owner,
+          repo,
+          count: data.evidence.length,
+          items: data.evidence
+        };
+        remember(entry);
+
         status.innerHTML = `<p>Collected at ${new Date(data.collected_at).toLocaleString()} — ${data.evidence.length} merged PRs</p>`;
-
-        if (data.evidence.length === 0) {
-          results.innerHTML = '<div class="card"><p>No merged pull requests found.</p></div>';
-          loadHistory();
-          return;
-        }
-
-        let html = '<div class="card">';
-        data.evidence.forEach(pr => {
-          const reviewStatus = pr.has_review
-            ? `<span class="ok">Reviewed by ${pr.reviewers.join(', ') || 'someone'}</span>`
-            : `<span class="missing">No review</span>`;
-          html += `
-            <div class="pr">
-              <strong><a href="${pr.url}" target="_blank">#${pr.id} ${pr.title}</a></strong><br>
-              ${reviewStatus}<br>
-              <span class="meta">Merged: ${new Date(pr.merged_at).toLocaleString()}</span>
-            </div>`;
-        });
-        html += '</div>';
-        results.innerHTML = html;
+        results.innerHTML = renderItems(data.evidence);
         loadHistory();
       } catch (err) {
-        status.innerHTML = `<p class="error">Error: ${err.message}</p>`;
+        status.innerHTML = `<p class="error">Error: ${escapeHtml(err.message)}</p>`;
       }
     }
 
     function exportEvidence() {
-      window.location.href = '/api/export';
+      const list = loadStored();
+      const status = document.getElementById('status');
+      if (!list.length) {
+        status.innerHTML = '<p class="error">Nothing to export yet.</p>';
+        return;
+      }
+      const latest = list[list.length - 1];
+      const blob = new Blob([JSON.stringify(latest, null, 2)], { type: 'application/json' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'github-evidence.json';
+      link.click();
+      URL.revokeObjectURL(link.href);
     }
 
-    async function loadHistory() {
+    function loadHistory() {
       const historyDiv = document.getElementById('history');
-      try {
-        const res = await fetch('/api/history');
-        const history = await res.json();
-        if (!history || history.length === 0) {
-          historyDiv.innerHTML = '<p>No collections yet. Fetch some evidence first.</p>';
-          return;
-        }
-        let html = '';
-        history.slice().reverse().forEach((entry, idx) => {
-          const date = new Date(entry.collected_at).toLocaleString();
-          const reviewed = entry.items.filter(i => i.has_review).length;
-          html += `
-            <div class="history-item" onclick="showHistoryEntry(${history.length - 1 - idx})">
-              <div class="summary">${entry.owner}/${entry.repo} — ${entry.count} PRs (${reviewed} reviewed)</div>
-              <span class="meta">${date}</span>
-            </div>`;
-        });
-        historyDiv.innerHTML = html;
-      } catch (err) {
-        historyDiv.innerHTML = '<p class="error">Could not load history.</p>';
+      const history = loadStored();
+      if (!history.length) {
+        historyDiv.innerHTML = '<p>No collections yet. Fetch some evidence first.</p>';
+        return;
       }
+      let html = '';
+      history.slice().reverse().forEach((entry, idx) => {
+        const index = history.length - 1 - idx;
+        const date = new Date(entry.collected_at).toLocaleString();
+        const reviewed = (entry.items || []).filter(i => i.has_review).length;
+        html += `
+          <div class="history-item" onclick="showHistoryEntry(${index})">
+            <div class="summary">${escapeHtml(entry.owner)}/${escapeHtml(entry.repo)} — ${escapeHtml(entry.count)} PRs (${reviewed} reviewed)</div>
+            <span class="meta">${escapeHtml(date)}</span>
+          </div>`;
+      });
+      historyDiv.innerHTML = html;
     }
 
     function showHistoryEntry(index) {
       const status = document.getElementById('status');
       const results = document.getElementById('results');
-      status.innerHTML = '<p>Loading previous collection...</p>';
-      results.innerHTML = '';
-
-      fetch('/api/history/' + index)
-        .then(res => res.json())
-        .then(entry => {
-          if (entry.error) throw new Error(entry.error);
-          status.innerHTML = `<p>Showing collection from ${new Date(entry.collected_at).toLocaleString()} — ${entry.owner}/${entry.repo}</p>`;
-          if (!entry.items || entry.items.length === 0) {
-            results.innerHTML = '<div class="card"><p>No items in this collection.</p></div>';
-            return;
-          }
-          let html = '<div class="card">';
-          entry.items.forEach(pr => {
-            const reviewStatus = pr.has_review
-              ? `<span class="ok">Reviewed by ${pr.reviewers.join(', ') || 'someone'}</span>`
-              : `<span class="missing">No review</span>`;
-            html += `
-              <div class="pr">
-                <strong><a href="${pr.url}" target="_blank">#${pr.id} ${pr.title}</a></strong><br>
-                ${reviewStatus}<br>
-                <span class="meta">Merged: ${new Date(pr.merged_at).toLocaleString()}</span>
-              </div>`;
-          });
-          html += '</div>';
-          results.innerHTML = html;
-        })
-        .catch(err => {
-          status.innerHTML = `<p class="error">Error: ${err.message}</p>`;
-        });
+      const history = loadStored();
+      const entry = history[index];
+      if (!entry) {
+        status.innerHTML = '<p class="error">That collection is no longer saved.</p>';
+        return;
+      }
+      status.innerHTML = `<p>Showing collection from ${escapeHtml(new Date(entry.collected_at).toLocaleString())} — ${escapeHtml(entry.owner)}/${escapeHtml(entry.repo)}</p>`;
+      results.innerHTML = renderItems(entry.items);
     }
 
     loadHistory();
