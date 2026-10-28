@@ -18,6 +18,9 @@
     .missing { color: #dc3545; font-weight: 600; }
     .meta { color: #666; font-size: 0.9em; }
     .error { color: #dc3545; }
+    .history-item { border-bottom: 1px solid #eee; padding: 10px 0; cursor: pointer; }
+    .history-item:hover { background: #f1f3f5; }
+    .summary { font-weight: 600; margin-bottom: 4px; }
   </style>
 </head>
 <body>
@@ -37,6 +40,9 @@
 
   <div id="status"></div>
   <div id="results"></div>
+
+  <h2>Previous collections</h2>
+  <div id="history" class="card">Loading...</div>
 
   <script>
     async function fetchEvidence() {
@@ -67,6 +73,7 @@
 
         if (data.evidence.length === 0) {
           results.innerHTML = '<div class="card"><p>No merged pull requests found.</p></div>';
+          loadHistory();
           return;
         }
 
@@ -84,6 +91,7 @@
         });
         html += '</div>';
         results.innerHTML = html;
+        loadHistory();
       } catch (err) {
         status.innerHTML = `<p class="error">Error: ${err.message}</p>`;
       }
@@ -92,6 +100,33 @@
     function exportEvidence() {
       window.location.href = '/api/export';
     }
+
+    async function loadHistory() {
+      const historyDiv = document.getElementById('history');
+      try {
+        const res = await fetch('/api/history');
+        const history = await res.json();
+        if (!history || history.length === 0) {
+          historyDiv.innerHTML = '<p>No collections yet. Fetch some evidence first.</p>';
+          return;
+        }
+        let html = '';
+        history.slice().reverse().forEach((entry) => {
+          const date = new Date(entry.collected_at).toLocaleString();
+          const reviewed = entry.items.filter(i => i.has_review).length;
+          html += `
+            <div class="history-item">
+              <div class="summary">${entry.owner}/${entry.repo} — ${entry.count} PRs (${reviewed} reviewed)</div>
+              <span class="meta">${date}</span>
+            </div>`;
+        });
+        historyDiv.innerHTML = html;
+      } catch (err) {
+        historyDiv.innerHTML = '<p class="error">Could not load history.</p>';
+      }
+    }
+
+    loadHistory();
   </script>
 </body>
 </html>
