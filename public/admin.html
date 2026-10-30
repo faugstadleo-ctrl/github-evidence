@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Admin</title>
+  <title>Admin — Flaike</title>
+  <link rel="stylesheet" href="/site.css">
   <style>
     body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; color: #222; }
     .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
@@ -19,10 +20,20 @@
   </style>
 </head>
 <body>
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <h1 style="margin:0;">Admin</h1>
-    <span><a href="/logs">Logs</a> · <a href="/app">Back to the tool</a></span>
-  </div>
+<header>
+  <nav>
+    <a class="brand" href="/app">Flaike</a>
+    <div class="links">
+      <a href="/app">Tool</a>
+      <a href="/admin">Admin</a>
+      <a href="/logs">Logs</a>
+      <button class="nav" onclick="logout()">Log out</button>
+    </div>
+  </nav>
+</header>
+<main>
+  <div class="wrap">
+  <h1>Admin</h1>
   <p class="meta" id="keep-note"></p>
 
   <h2>Open requests</h2>
@@ -131,8 +142,18 @@
     load();
   </script>
 
-  <footer style="margin-top:48px; padding:24px 0; color:#666; font-size:0.9rem; border-top:1px solid #eee;">
-    Flaike · 2026 · <a href="/terms" style="color:#0366d6;">Terms of use</a> · <a href="/" style="color:#0366d6;">Product</a>
-  </footer>
+
+  </div>
+</main>
+<footer>
+  <div class="foot">
+    <span>Flaike · 2026</span>
+    <span>
+      <a href="/terms">Terms of use</a>
+      <a href="/">Product</a>
+      <a href="/inquire">Ask for access</a>
+    </span>
+  </div>
+</footer>
 </body>
 </html>
