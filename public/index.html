@@ -25,15 +25,29 @@
     .history-item:hover { background: #f1f3f5; }
     .summary { font-weight: 600; margin-bottom: 4px; }
     a { color: #0366d6; }
+    ol { margin: 8px 0 0; padding-left: 20px; }
     #filters { display: none; margin-bottom: 8px; }
   </style>
 </head>
 <body>
   <div style="display:flex; justify-content:space-between; align-items:center;">
     <h1 style="margin:0;">GitHub Evidence</h1>
-    <button class="secondary" onclick="logout()" style="margin-top:0;">Log out</button>
+    <span>
+      <a id="admin-link" href="/admin" style="display:none; margin-right:12px;">Admin</a>
+      <button class="secondary" onclick="logout()" style="margin-top:0;">Log out</button>
+    </span>
   </div>
   <p>Collect proof that merged pull requests were reviewed.</p>
+  <div class="card">
+    <strong>First time here</strong>
+    <ol>
+      <li>Owner is the name before the slash. In <code>facebook/react</code>, the owner is <code>facebook</code>.</li>
+      <li>Repo is the name after the slash. In that example, the repo is <code>react</code>.</li>
+      <li>Paste a GitHub token only if the repo is private, or if you hit a rate limit.</li>
+      <li>Press Fetch Evidence. Green means a review was found. Red means none was found.</li>
+      <li>The first line is the verdict. Download report if you need to send it to someone.</li>
+    </ol>
+  </div>
   <div class="card">
     <label>Owner (username or org)</label>
     <input id="owner" placeholder="e.g. octocat" value="octocat">
@@ -67,30 +81,6 @@
   <h2>Previous collections</h2>
   <p class="meta">Saved in this browser. They stay after a refresh or a site restart.</p>
   <div id="history" class="card">Loading...</div>
-  <div id="admin" style="display:none;">
-    <h2>Requests for access</h2>
-    <p class="meta" id="keep-note"></p>
-    <div id="inquiries" class="card">Loading...</div>
-    <p><a href="/logs">Logs</a> — approved, not approved, and ignored requests.</p>
-    <div class="card">
-      <h3>Approve a customer</h3>
-      <p class="meta">Only for someone you have already agreed with and who has paid. This creates their login.</p>
-      <label>Username</label>
-      <input id="new-user" placeholder="username">
-      <label>Password</label>
-      <div style="display:flex; align-items:center; gap:8px;">
-        <input id="new-pass" type="password" placeholder="password they will use" style="flex:1;">
-        <button type="button" class="secondary" id="show-new-pass" onclick="toggleNewPass()" style="margin-top:0;">Show</button>
-      </div>
-      <button onclick="createUser()">Create login</button>
-      <p id="user-status"></p>
-    </div>
-    <div class="card">
-      <h3>Customer logins</h3>
-      <p class="meta">Remove a login if they stop paying. They cannot get in after that.</p>
-      <div id="logins">Loading...</div>
-    </div>
-  </div>
   <script>
     const STORAGE_KEY = 'github-evidence-history';
     const FORM_KEY = 'github-evidence-form';
@@ -108,7 +98,6 @@
     function renderRule(rule) { renderFinding('rule', rule); }
     function renderAccess(access) { renderFinding('access', access); }
     function renderChecks(checks) { renderFinding('checks', checks); }
-    function toggleNewPass() { const input = document.getElementById('new-pass'); const button = document.getElementById('show-new-pass'); const showing = input.type === 'text'; input.type = showing ? 'password' : 'text'; button.textContent = showing ? 'Show' : 'Hide'; }
     function reviewLine(pr) { if (pr.review_unknown) return 'Could not check reviews'; if (pr.has_review) return 'Reviewed by ' + ((pr.reviewers || []).join(', ') || 'someone'); return 'No review'; }
     function overallLine() { const problems = []; if (currentRule && currentRule.status === 'not_required') problems.push('a review is not required'); if (currentAccess && currentAccess.status === 'missing') problems.push('an admin can skip the rule'); if (currentChecks && currentChecks.status === 'missing') problems.push('tests or force-push is weak'); const missing = currentItems.filter(item => !item.has_review && !item.review_unknown).length; if (missing) problems.push(missing + ' change' + (missing === 1 ? '' : 's') + ' missing a review'); if (!problems.length) return 'Nothing obvious is wrong in what was checked.'; return problems.length + ' problem' + (problems.length === 1 ? '' : 's') + ': ' + problems.join('; ') + '.'; }
     function renderItems(items) { if (!items || items.length === 0) return '<div class="card"><p>Nothing in this view.</p></div>'; let html = '<div class="card">'; items.forEach(pr => { const text = reviewLine(pr); const css = pr.review_unknown ? 'unknown' : (pr.has_review ? 'ok' : 'missing'); html += '<div class="pr"><strong><a href="' + escapeHtml(pr.url) + '" target="_blank" rel="noopener">#' + escapeHtml(pr.id) + ' ' + escapeHtml(pr.title) + '</a></strong><br><span class="' + css + '">' + escapeHtml(text) + '</span><br><span class="meta">Merged: ' + escapeHtml(new Date(pr.merged_at).toLocaleString()) + '</span></div>'; }); return html + '</div>'; }
@@ -124,12 +113,13 @@
     function loadHistory() { const historyDiv = document.getElementById('history'); const history = loadStored(); if (!history.length) { historyDiv.innerHTML = '<p>No collections yet. Fetch some evidence first.</p>'; return; } let html = ''; history.slice().reverse().forEach((entry, idx) => { const index = history.length - 1 - idx; const reviewed = (entry.items || []).filter(item => item.has_review && !item.review_unknown).length; html += '<div class="history-item" onclick="showHistoryEntry(' + index + ')"><div class="summary">' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + ' — ' + escapeHtml(entry.count) + ' PRs (' + reviewed + ' reviewed)</div><span class="meta">' + escapeHtml(new Date(entry.collected_at).toLocaleString()) + ' · ' + escapeHtml(entry.period || 'Latest 100') + '</span></div>'; }); historyDiv.innerHTML = html; }
     function showHistoryEntry(index) { const history = loadStored(); const entry = history[index]; const status = document.getElementById('status'); if (!entry) { status.innerHTML = '<p class="error">That collection is no longer saved.</p>'; return; } status.innerHTML = '<p>Showing collection from ' + escapeHtml(new Date(entry.collected_at).toLocaleString()) + ' — ' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + '</p>'; showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo, entry.rule, entry.access, entry.checks); }
     async function logout() { await fetch('/api/logout', { method: 'POST' }); window.location.href = '/'; }
-    async function loadAdmin() { const me = await fetch('/api/me'); if (!me.ok) { window.location.href = '/login'; return; } const user = await me.json(); if (user.role !== 'admin') return; document.getElementById('admin').style.display = 'block'; document.getElementById('keep-note').textContent = user.requests_kept ? 'Requests are kept even if the site restarts. You also get a GitHub issue for each one.' : 'Requests can disappear if the site restarts. Add GITHUB_TOKEN on Render to keep them.'; const res = await fetch('/api/inquiries'); const list = (await res.json()).filter(item => !item.status); const box = document.getElementById('inquiries'); if (!list.length) box.innerHTML = '<p>No open requests.</p>'; else box.innerHTML = list.slice().reverse().map(item => '<div class="pr"><strong>' + escapeHtml(item.name) + '</strong> · ' + escapeHtml(item.email) + '<br><span class="meta">' + escapeHtml(item.company || 'No company') + ' · ' + escapeHtml(new Date(item.at).toLocaleString()) + '</span><br>' + escapeHtml(item.note || '') + '<br><button type="button" class="secondary" onclick="fileRequest(\'' + escapeHtml(item.at) + '\', \'approved\')">Approved</button><button type="button" class="secondary" onclick="fileRequest(\'' + escapeHtml(item.at) + '\', \'disapproved\')">Not approved</button><button type="button" class="secondary" onclick="fileRequest(\'' + escapeHtml(item.at) + '\', \'ignored\')">Ignore</button></div>').join(''); loadLogins(); }
-    async function fileRequest(at, status) { await fetch('/api/inquiries/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ at, status, reason: '' }) }); loadAdmin(); }
-    async function loadLogins() { const res = await fetch('/api/users'); const list = await res.json(); const box = document.getElementById('logins'); if (!list.length) { box.innerHTML = '<p>No customer logins yet.</p>'; return; } box.innerHTML = list.map(item => '<div class="pr"><strong>' + escapeHtml(item.username) + '</strong><button type="button" class="secondary" onclick="removeLogin(\'' + escapeHtml(item.username) + '\')">Remove</button></div>').join(''); }
-    async function removeLogin(username) { await fetch('/api/users/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) }); loadLogins(); }
-    async function createUser() { const status = document.getElementById('user-status'); const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('new-user').value.trim(), password: document.getElementById('new-pass').value }) }); const data = await res.json(); if (!res.ok) { status.innerHTML = '<span class="error">' + escapeHtml(data.error || 'Could not create') + '</span>'; return; } status.innerHTML = '<span class="ok">Login created. Send them the username and password.</span>'; document.getElementById('new-user').value = ''; document.getElementById('new-pass').value = ''; loadLogins(); }
-    loadForm(); loadHistory(); loadAdmin();
+    async function showAdminLink() {
+      const me = await fetch('/api/me');
+      if (!me.ok) { window.location.href = '/login'; return; }
+      const user = await me.json();
+      if (user.role === 'admin') document.getElementById('admin-link').style.display = 'inline';
+    }
+    loadForm(); loadHistory(); showAdminLink();
   </script>
 </body>
 </html>
