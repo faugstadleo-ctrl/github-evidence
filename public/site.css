@@ -1,15 +1,15 @@
 * { box-sizing: border-box; }
 body { margin: 0; font-family: system-ui, sans-serif; color: #1a1a1a; background: #f6f7f9; min-height: 100vh; display: flex; flex-direction: column; }
 header { background: #111; color: white; }
-nav { max-width: 1040px; margin: 0 auto; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+nav { width: 100%; margin: 0; padding: 16px 40px; display: flex; align-items: center; justify-content: space-between; }
 .brand { color: white; text-decoration: none; font-weight: 700; font-size: 1.15rem; letter-spacing: 0.02em; }
 .links { display: flex; align-items: center; gap: 22px; }
 .links a { color: #ddd; text-decoration: none; font-size: 0.95rem; }
 .links a:hover { color: white; }
 .links .btn, button.nav { background: white; color: #111; padding: 8px 14px; border-radius: 6px; font-weight: 600; border: none; cursor: pointer; margin: 0; }
 main { flex: 1; }
-.wrap { max-width: 1040px; margin: 0 auto; padding: 32px 24px; }
-.narrow { max-width: 720px; }
+.wrap { width: 100%; margin: 0; padding: 32px 40px; }
+.narrow { width: 100%; }
 .card { background: white; border-radius: 10px; padding: 22px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
 label { display: block; margin: 12px 0 4px; font-weight: 500; }
 input, select, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; box-sizing: border-box; background: white; font: inherit; }
@@ -36,6 +36,6 @@ summary { cursor: pointer; font-weight: 600; }
 .row { display: flex; align-items: center; gap: 8px; }
 #filters { display: none; margin-bottom: 8px; }
 footer { background: #111; color: #bbb; margin-top: auto; }
-.foot { max-width: 1040px; margin: 0 auto; padding: 28px 24px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 0.9rem; }
+.foot { width: 100%; margin: 0; padding: 28px 40px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 0.9rem; }
 footer a { color: #ddd; text-decoration: none; margin-right: 16px; }
 footer a:hover { color: white; }
