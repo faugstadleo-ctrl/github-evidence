@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 800px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; color: #222; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    label { display: block; margin: 10px 0 4px; font-weight: 500; }
+    input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    button { background: #0366d6; color: white; border: none; padding: 8px 14px; border-radius: 4px; cursor: pointer; margin-top: 10px; }
+    button.secondary { background: #6c757d; margin-left: 8px; }
+    .pr { border-bottom: 1px solid #eee; padding: 12px 0; }
+    .meta { color: #666; font-size: 0.9em; }
+    .ok { color: #28a745; }
+    .error { color: #dc3545; }
+    a { color: #0366d6; }
+    .row { display: flex; align-items: center; gap: 8px; }
+  </style>
+</head>
+<body>
+  <div style="display:flex; justify-content:space-between; align-items:center;">
+    <h1 style="margin:0;">Admin</h1>
+    <span><a href="/logs">Logs</a> · <a href="/app">Back to the tool</a></span>
+  </div>
+  <p class="meta" id="keep-note"></p>
+
+  <h2>Open requests</h2>
+  <div id="inquiries" class="card">Loading...</div>
+
+  <div class="card">
+    <h2>Approve a customer</h2>
+    <p class="meta">Only for someone you have already agreed with and who has paid. This creates their login.</p>
+    <label>Username</label>
+    <input id="new-user" placeholder="username">
+    <label>Password</label>
+    <div class="row">
+      <input id="new-pass" type="password" placeholder="password they will use" style="flex:1;">
+      <button type="button" class="secondary" id="show-new-pass" onclick="toggle('new-pass','show-new-pass')" style="margin-top:0;">Show</button>
+    </div>
+    <button onclick="createUser()">Create login</button>
+    <p id="user-status"></p>
+  </div>
+
+  <div class="card">
+    <h2>Customer logins</h2>
+    <p class="meta">Remove a login if they stop paying. They cannot get in after that.</p>
+    <div id="logins">Loading...</div>
+  </div>
+
+  <div class="card">
+    <h2>Change your password</h2>
+    <label>Current password</label>
+    <input id="current" type="password">
+    <label>New password</label>
+    <div class="row">
+      <input id="next" type="password" style="flex:1;">
+      <button type="button" class="secondary" id="show-next" onclick="toggle('next','show-next')" style="margin-top:0;">Show</button>
+    </div>
+    <button onclick="changePassword()">Change password</button>
+    <p id="pass-status"></p>
+  </div>
+
+  <script>
+    function escapeHtml(value) {
+      return String(value ?? '').replace(/&/g, '&' + 'amp;').replace(/</g, '&' + 'lt;').replace(/>/g, '&' + 'gt;').replace(/"/g, '&' + 'quot;');
+    }
+    function toggle(inputId, buttonId) {
+      const input = document.getElementById(inputId);
+      const button = document.getElementById(buttonId);
+      const showing = input.type === 'text';
+      input.type = showing ? 'password' : 'text';
+      button.textContent = showing ? 'Show' : 'Hide';
+    }
+    async function load() {
+      const me = await fetch('/api/me');
+      if (!me.ok) { window.location.href = '/login'; return; }
+      const user = await me.json();
+      if (user.role !== 'admin') { window.location.href = '/app'; return; }
+      document.getElementById('keep-note').textContent = user.requests_kept
+        ? 'Requests are kept even if the site restarts. Email notice is ' + (user.mail_ready ? 'on.' : 'not set up yet.')
+        : 'Requests can disappear if the site restarts. Add GITHUB_TOKEN on Render to keep them.';
+      const res = await fetch('/api/inquiries');
+      const list = (await res.json()).filter(item => !item.status);
+      const box = document.getElementById('inquiries');
+      if (!list.length) box.innerHTML = '<p>No open requests.</p>';
+      else box.innerHTML = list.slice().reverse().map(item =>
+        '<div class="pr"><strong>' + escapeHtml(item.name) + '</strong> · ' + escapeHtml(item.email)
+        + '<br><span class="meta">' + escapeHtml(item.company || 'No company') + ' · ' + escapeHtml(new Date(item.at).toLocaleString()) + '</span>'
+        + '<br>' + escapeHtml(item.note || '')
+        + '<br><button type="button" class="secondary" onclick="fileRequest(\'' + escapeHtml(item.at) + '\', \'approved\')">Approved</button>'
+        + '<button type="button" class="secondary" onclick="fileRequest(\'' + escapeHtml(item.at) + '\', \'disapproved\')">Not approved</button>'
+        + '<button type="button" class="secondary" onclick="fileRequest(\'' + escapeHtml(item.at) + '\', \'ignored\')">Ignore</button></div>'
+      ).join('');
+      loadLogins();
+    }
+    async function fileRequest(at, status) {
+      await fetch('/api/inquiries/status', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ at, status, reason: '' }) });
+      load();
+    }
+    async function loadLogins() {
+      const res = await fetch('/api/users');
+      const list = await res.json();
+      const box = document.getElementById('logins');
+      if (!list.length) { box.innerHTML = '<p>No customer logins yet.</p>'; return; }
+      box.innerHTML = list.map(item => '<div class="pr"><strong>' + escapeHtml(item.username) + '</strong><button type="button" class="secondary" onclick="removeLogin(\'' + escapeHtml(item.username) + '\')">Remove</button></div>').join('');
+    }
+    async function removeLogin(username) {
+      await fetch('/api/users/remove', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) });
+      loadLogins();
+    }
+    async function createUser() {
+      const status = document.getElementById('user-status');
+      const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('new-user').value.trim(), password: document.getElementById('new-pass').value }) });
+      const data = await res.json();
+      if (!res.ok) { status.innerHTML = '<span class="error">' + escapeHtml(data.error || 'Could not create') + '</span>'; return; }
+      status.innerHTML = '<span class="ok">Login created. Send them the username and password.</span>';
+      document.getElementById('new-user').value = '';
+      document.getElementById('new-pass').value = '';
+      loadLogins();
+    }
+    async function changePassword() {
+      const status = document.getElementById('pass-status');
+      const res = await fetch('/api/password', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ current: document.getElementById('current').value, next: document.getElementById('next').value }) });
+      const data = await res.json();
+      if (!res.ok) { status.innerHTML = '<span class="error">' + escapeHtml(data.error || 'Could not change') + '</span>'; return; }
+      status.innerHTML = '<span class="ok">Password changed.</span>';
+      document.getElementById('current').value = '';
+      document.getElementById('next').value = '';
+    }
+    load();
+  </script>
+</body>
+</html>
