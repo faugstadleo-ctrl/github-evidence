@@ -8,7 +8,7 @@
     h1 { margin-bottom: 0.5rem; }
     .card { background: white; border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
     label { display: block; margin: 10px 0 4px; font-weight: 500; }
-    input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    input, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; background: white; }
     button { background: #0366d6; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
     button:hover { background: #0256b9; }
     button.secondary { background: #6c757d; margin-left: 8px; }
@@ -18,6 +18,7 @@
     .pr:last-child { border-bottom: none; }
     .ok { color: #28a745; font-weight: 600; }
     .missing { color: #dc3545; font-weight: 600; }
+    .unknown { color: #9a6700; font-weight: 600; }
     .meta { color: #666; font-size: 0.9em; }
     .error { color: #dc3545; }
     .history-item { border-bottom: 1px solid #eee; padding: 10px 0; cursor: pointer; }
@@ -35,10 +36,18 @@
     <input id="owner" placeholder="e.g. octocat" value="octocat">
     <label>Repo</label>
     <input id="repo" placeholder="e.g. Hello-World" value="Hello-World">
+    <label>Time period</label>
+    <select id="days">
+      <option value="">Latest 100</option>
+      <option value="30">Last 30 days</option>
+      <option value="90">Last 90 days</option>
+      <option value="365">Last 12 months</option>
+    </select>
     <label>Personal Access Token (optional, for private repos or higher rate limits)</label>
     <input id="token" type="password" placeholder="ghp_...">
     <button onclick="fetchEvidence()">Fetch Evidence</button>
-    <button class="secondary" onclick="exportEvidence()">Export Latest</button>
+    <button class="secondary" onclick="downloadReport()">Download report</button>
+    <button class="secondary" onclick="exportEvidence()">Export JSON</button>
     <button class="secondary" onclick="clearSaved()">Clear saved details</button>
   </div>
 
@@ -61,6 +70,8 @@
     const MAX_HISTORY = 20;
     let currentItems = [];
     let currentFilter = 'all';
+    let currentNote = '';
+    let currentHeading = '';
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -68,6 +79,13 @@
         .replace(/</g, '&' + 'lt;')
         .replace(/>/g, '&' + 'gt;')
         .replace(/"/g, '&' + 'quot;');
+    }
+
+    function periodLabel(days) {
+      if (String(days) === '30') return 'Last 30 days';
+      if (String(days) === '90') return 'Last 90 days';
+      if (String(days) === '365') return 'Last 12 months';
+      return 'Latest 100';
     }
 
     function loadStored() {
@@ -96,6 +114,7 @@
         if (saved.owner) document.getElementById('owner').value = saved.owner;
         if (saved.repo) document.getElementById('repo').value = saved.repo;
         if (saved.token) document.getElementById('token').value = saved.token;
+        if (saved.days !== undefined) document.getElementById('days').value = saved.days;
       } catch {}
     }
 
@@ -103,14 +122,21 @@
       localStorage.setItem(FORM_KEY, JSON.stringify({
         owner: document.getElementById('owner').value.trim(),
         repo: document.getElementById('repo').value.trim(),
-        token: document.getElementById('token').value.trim()
+        token: document.getElementById('token').value.trim(),
+        days: document.getElementById('days').value
       }));
     }
 
     function clearSaved() {
       localStorage.removeItem(FORM_KEY);
       document.getElementById('token').value = '';
-      document.getElementById('status').innerHTML = '<p>Saved owner, repo, and token were cleared from this browser.</p>';
+      document.getElementById('status').innerHTML = '<p>Saved owner, repo, token, and period were cleared from this browser.</p>';
+    }
+
+    function reviewLine(pr) {
+      if (pr.review_unknown) return 'Could not check reviews';
+      if (pr.has_review) return 'Reviewed by ' + ((pr.reviewers || []).join(', ') || 'someone');
+      return 'No review';
     }
 
     function renderItems(items) {
@@ -119,19 +145,23 @@
       }
       let html = '<div class="card">';
       items.forEach(pr => {
-        const reviewers = (pr.reviewers || []).join(', ');
-        const reviewStatus = pr.has_review
-          ? '<span class="ok">Reviewed by ' + escapeHtml(reviewers || 'someone') + '</span>'
-          : '<span class="missing">No review</span>';
+        const text = reviewLine(pr);
+        const css = pr.review_unknown ? 'unknown' : (pr.has_review ? 'ok' : 'missing');
         html += '<div class="pr">'
           + '<strong><a href="' + escapeHtml(pr.url) + '" target="_blank" rel="noopener">#'
           + escapeHtml(pr.id) + ' ' + escapeHtml(pr.title) + '</a></strong><br>'
-          + reviewStatus + '<br>'
+          + '<span class="' + css + '">' + escapeHtml(text) + '</span><br>'
           + '<span class="meta">Merged: ' + escapeHtml(new Date(pr.merged_at).toLocaleString()) + '</span>'
           + '</div>';
       });
       html += '</div>';
       return html;
+    }
+
+    function visibleItems() {
+      if (currentFilter === 'missing') return currentItems.filter(item => !item.has_review && !item.review_unknown);
+      if (currentFilter === 'reviewed') return currentItems.filter(item => item.has_review && !item.review_unknown);
+      return currentItems;
     }
 
     function setFilter(name) {
@@ -144,8 +174,9 @@
       const summary = document.getElementById('summary');
       const results = document.getElementById('results');
       const total = currentItems.length;
-      const reviewed = currentItems.filter(item => item.has_review).length;
-      const missing = total - reviewed;
+      const reviewed = currentItems.filter(item => item.has_review && !item.review_unknown).length;
+      const unknown = currentItems.filter(item => item.review_unknown).length;
+      const missing = total - reviewed - unknown;
 
       document.querySelectorAll('#filters button').forEach(button => {
         button.classList.toggle('active', button.dataset.filter === currentFilter);
@@ -159,24 +190,34 @@
       }
 
       filters.style.display = 'block';
-      summary.innerHTML = '<p><strong>' + reviewed + ' of ' + total + ' reviewed.</strong> ' + missing + ' missing a review.</p>';
-
-      let shown = currentItems;
-      if (currentFilter === 'missing') shown = currentItems.filter(item => !item.has_review);
-      if (currentFilter === 'reviewed') shown = currentItems.filter(item => item.has_review);
-      results.innerHTML = renderItems(shown);
+      let text = '<p><strong>' + reviewed + ' of ' + total + ' reviewed.</strong> ' + missing + ' missing a review.';
+      if (unknown) text += ' ' + unknown + ' could not be checked.';
+      if (currentNote) text += '<br><span class="meta">' + escapeHtml(currentNote) + '</span>';
+      text += '</p>';
+      summary.innerHTML = text;
+      results.innerHTML = renderItems(visibleItems());
     }
 
-    function showItems(items) {
+    function showItems(items, note, heading) {
       currentItems = items || [];
       currentFilter = 'all';
+      currentNote = note || '';
+      currentHeading = heading || '';
       paint();
+    }
+
+    function collectionNote(entry) {
+      const parts = [entry.period || periodLabel(entry.days)];
+      if (entry.since) parts.push('from ' + new Date(entry.since).toLocaleDateString());
+      if (entry.truncated) parts.push('Stopped early because there were too many pull requests. Some older ones in this period may be missing.');
+      return parts.join('. ').replace('..', '.');
     }
 
     async function fetchEvidence() {
       const owner = document.getElementById('owner').value.trim();
       const repo = document.getElementById('repo').value.trim();
       const token = document.getElementById('token').value.trim();
+      const days = document.getElementById('days').value;
       const status = document.getElementById('status');
 
       if (!owner || !repo) {
@@ -185,7 +226,7 @@
       }
 
       saveForm();
-      status.innerHTML = '<p>Fetching...</p>';
+      status.innerHTML = '<p>Fetching' + (days ? '. A longer period can take a minute.' : '.') + '</p>';
       document.getElementById('summary').innerHTML = '';
       document.getElementById('filters').style.display = 'none';
       document.getElementById('results').innerHTML = '';
@@ -194,25 +235,70 @@
         const res = await fetch('/api/fetch', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner, repo, token: token || undefined })
+          body: JSON.stringify({ owner, repo, token: token || undefined, days: days || undefined })
         });
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || 'Failed');
 
-        remember({
+        const entry = {
           collected_at: data.collected_at,
           owner,
           repo,
           count: data.evidence.length,
+          days: data.days || null,
+          since: data.since || null,
+          truncated: !!data.truncated,
+          period: periodLabel(data.days),
           items: data.evidence
-        });
+        };
+        remember(entry);
 
         status.innerHTML = '<p>Collected at ' + escapeHtml(new Date(data.collected_at).toLocaleString()) + '</p>';
-        showItems(data.evidence);
+        showItems(data.evidence, collectionNote(entry), owner + '/' + repo);
         loadHistory();
       } catch (err) {
         status.innerHTML = '<p class="error">Error: ' + escapeHtml(err.message) + '</p>';
       }
+    }
+
+    function downloadText(filename, text) {
+      const blob = new Blob([text], { type: 'text/plain' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    function downloadReport() {
+      const status = document.getElementById('status');
+      if (!currentItems.length) {
+        status.innerHTML = '<p class="error">Nothing to download yet. Fetch a repository first.</p>';
+        return;
+      }
+      const items = visibleItems();
+      const reviewed = currentItems.filter(item => item.has_review && !item.review_unknown).length;
+      const unknown = currentItems.filter(item => item.review_unknown).length;
+      const missing = currentItems.length - reviewed - unknown;
+      const filterName = currentFilter === 'missing' ? 'No review' : (currentFilter === 'reviewed' ? 'Reviewed' : 'All');
+      const lines = [
+        'GitHub review evidence',
+        currentHeading || 'Repository',
+        'Collected: ' + (document.getElementById('status').innerText || ''),
+        currentNote || '',
+        reviewed + ' of ' + currentItems.length + ' reviewed. ' + missing + ' missing a review.' + (unknown ? ' ' + unknown + ' could not be checked.' : ''),
+        'Showing: ' + filterName,
+        ''
+      ];
+      items.forEach(pr => {
+        lines.push('#' + pr.id + ' ' + pr.title);
+        lines.push(reviewLine(pr));
+        lines.push('Merged: ' + new Date(pr.merged_at).toLocaleString());
+        lines.push(pr.url);
+        lines.push('');
+      });
+      if (!items.length) lines.push('Nothing matched this filter.');
+      downloadText('github-evidence-report.txt', lines.filter(line => line !== undefined).join('\n'));
     }
 
     function exportEvidence() {
@@ -242,11 +328,12 @@
       history.slice().reverse().forEach((entry, idx) => {
         const index = history.length - 1 - idx;
         const date = new Date(entry.collected_at).toLocaleString();
-        const reviewed = (entry.items || []).filter(item => item.has_review).length;
+        const reviewed = (entry.items || []).filter(item => item.has_review && !item.review_unknown).length;
+        const label = entry.period || 'Latest 100';
         html += '<div class="history-item" onclick="showHistoryEntry(' + index + ')">'
           + '<div class="summary">' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo)
           + ' — ' + escapeHtml(entry.count) + ' PRs (' + reviewed + ' reviewed)</div>'
-          + '<span class="meta">' + escapeHtml(date) + '</span>'
+          + '<span class="meta">' + escapeHtml(date) + ' · ' + escapeHtml(label) + '</span>'
           + '</div>';
       });
       historyDiv.innerHTML = html;
@@ -263,7 +350,7 @@
       status.innerHTML = '<p>Showing collection from '
         + escapeHtml(new Date(entry.collected_at).toLocaleString())
         + ' — ' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + '</p>';
-      showItems(entry.items || []);
+      showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo);
     }
 
     loadForm();
