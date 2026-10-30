@@ -219,6 +219,52 @@ async function readReviewRule(owner, repo, headers) {
     detail: `Could not fully read the rules for ${branch}. This token cannot see every setting, so a missing review requirement is not proven.`
   };
 }
+
+async function readAccess(owner, repo, headers) {
+  const repoRes = await githubJson(`https://api.github.com/repos/${owner}/${repo}`, headers);
+  if (!repoRes.ok) {
+    return { status: 'unknown', detail: 'Could not check who can change the code.' };
+  }
+  const branch = repoRes.body.default_branch || 'main';
+  let bypass = 'unknown';
+  const protection = await githubJson(
+    `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}/protection`,
+    headers
+  );
+  if (protection.ok && protection.body) {
+    const enforced = protection.body.enforce_admins && protection.body.enforce_admins.enabled;
+    bypass = enforced ? 'no' : 'yes';
+  } else if (protection.status === 404) {
+    bypass = 'yes';
+  }
+
+  const collab = await githubJson(
+    `https://api.github.com/repos/${owner}/${repo}/collaborators?per_page=100`,
+    headers
+  );
+  let people = [];
+  let listed = false;
+  if (collab.ok && Array.isArray(collab.body)) {
+    listed = true;
+    people = collab.body.map(user => {
+      const role = user.role_name
+        || (user.permissions && user.permissions.admin ? 'admin' : user.permissions && user.permissions.maintain ? 'maintain' : user.permissions && user.permissions.push ? 'write' : 'read');
+      return { login: user.login, role };
+    }).filter(person => person.role === 'admin' || person.role === 'maintain' || person.role === 'write');
+  }
+
+  const writers = people.map(person => person.login + ' (' + person.role + ')');
+  let detail = bypass === 'yes'
+    ? `An admin can change ${branch} without going through the review rule.`
+    : bypass === 'no'
+      ? `The review rule on ${branch} also applies to admins.`
+      : `Could not see whether an admin can skip the rule on ${branch}.`;
+  detail += listed
+    ? (writers.length ? ' People who can change the code: ' + writers.join(', ') + '.' : ' No one with write access was listed.')
+    : ' This token cannot see the full list of people who can change the code.';
+  return { status: bypass === 'yes' ? 'missing' : (bypass === 'no' ? 'ok' : 'unknown'), branch, bypass, people, detail };
+}
+
 async function mapPool(items, limit, fn) {
   const out = new Array(items.length);
   let cursor = 0;
@@ -251,6 +297,7 @@ app.post('/api/fetch', requireAuth, async (req, res) => {
 
   try {
     const rulePromise = readReviewRule(owner, repo, headers);
+    const accessPromise = readAccess(owner, repo, headers);
     const pulls = [];
     let truncated = false;
 
@@ -308,6 +355,7 @@ app.post('/api/fetch', requireAuth, async (req, res) => {
     });
 
     const rule = await rulePromise;
+    const access = await accessPromise;
 
     evidenceHistory.push({
       collected_at: collectedAt,
@@ -318,11 +366,12 @@ app.post('/api/fetch', requireAuth, async (req, res) => {
       since,
       truncated,
       rule,
+      access,
       items: evidence
     });
     if (evidenceHistory.length > 10) evidenceHistory.shift();
 
-    res.json({ collected_at: collectedAt, evidence, truncated, since, days, rule });
+    res.json({ collected_at: collectedAt, evidence, truncated, since, days, rule, access });
   } catch (err) {
     const status = err.status || 500;
     res.status(status).json({ error: err.message });
