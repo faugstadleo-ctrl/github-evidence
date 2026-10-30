@@ -2,7 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>GitHub Evidence</title>
+  <title>Flaike</title>
+  <link rel="stylesheet" href="/site.css">
   <style>
     body { font-family: system-ui, sans-serif; max-width: 900px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; }
     h1 { margin-bottom: 0.5rem; }
@@ -30,14 +31,21 @@
   </style>
 </head>
 <body>
-  <div style="display:flex; justify-content:space-between; align-items:center;">
-    <h1 style="margin:0;">GitHub Evidence</h1>
-    <span>
-      <a id="admin-link" href="/admin" style="display:none; margin-right:12px;">Admin</a>
-      <button class="secondary" onclick="logout()" style="margin-top:0;">Log out</button>
-    </span>
-  </div>
-  <p>Collect proof that merged pull requests were reviewed.</p>
+<header>
+  <nav>
+    <a class="brand" href="/app">Flaike</a>
+    <div class="links">
+      <a href="/app">Tool</a>
+      <a id="admin-link" href="/admin" style="display:none;">Admin</a>
+      <a id="logs-link" href="/logs" style="display:none;">Logs</a>
+      <button class="nav" onclick="logout()">Log out</button>
+    </div>
+  </nav>
+</header>
+<main>
+  <div class="wrap">
+  <h1>Tool</h1>
+  <p class="muted">Collect proof that merged pull requests were reviewed.</p>
   <div class="card">
     <strong>First time here</strong>
     <ol>
@@ -117,13 +125,23 @@
       const me = await fetch('/api/me');
       if (!me.ok) { window.location.href = '/login'; return; }
       const user = await me.json();
-      if (user.role === 'admin') document.getElementById('admin-link').style.display = 'inline';
+      if (user.role === 'admin') { document.getElementById('admin-link').style.display = 'inline'; document.getElementById('logs-link').style.display = 'inline'; }
     }
     loadForm(); loadHistory(); showAdminLink();
   </script>
 
-  <footer style="margin-top:48px; padding:24px 0; color:#666; font-size:0.9rem; border-top:1px solid #eee;">
-    Flaike · 2026 · <a href="/terms" style="color:#0366d6;">Terms of use</a> · <a href="/" style="color:#0366d6;">Product</a>
-  </footer>
+
+  </div>
+</main>
+<footer>
+  <div class="foot">
+    <span>Flaike · 2026</span>
+    <span>
+      <a href="/terms">Terms of use</a>
+      <a href="/">Product</a>
+      <a href="/inquire">Ask for access</a>
+    </span>
+  </div>
+</footer>
 </body>
 </html>
