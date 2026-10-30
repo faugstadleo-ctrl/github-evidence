@@ -52,6 +52,7 @@
   </div>
 
   <div id="status"></div>
+  <div id="rule"></div>
   <div id="summary"></div>
   <div id="filters">
     <button type="button" class="filter active" data-filter="all" onclick="setFilter('all')">All</button>
@@ -72,6 +73,7 @@
     let currentFilter = 'all';
     let currentNote = '';
     let currentHeading = '';
+    let currentRule = null;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -133,6 +135,15 @@
       document.getElementById('status').innerHTML = '<p>Saved owner, repo, token, and period were cleared from this browser.</p>';
     }
 
+    function renderRule(rule) {
+      const box = document.getElementById('rule');
+      if (!rule || !rule.detail) {
+        box.innerHTML = '';
+        return;
+      }
+      const css = rule.status === 'required' ? 'ok' : (rule.status === 'not_required' ? 'missing' : 'unknown');
+      box.innerHTML = '<div class="card"><span class="' + css + '">' + escapeHtml(rule.detail) + '</span></div>';
+    }
     function reviewLine(pr) {
       if (pr.review_unknown) return 'Could not check reviews';
       if (pr.has_review) return 'Reviewed by ' + ((pr.reviewers || []).join(', ') || 'someone');
@@ -198,11 +209,13 @@
       results.innerHTML = renderItems(visibleItems());
     }
 
-    function showItems(items, note, heading) {
+    function showItems(items, note, heading, rule) {
       currentItems = items || [];
       currentFilter = 'all';
       currentNote = note || '';
       currentHeading = heading || '';
+      currentRule = rule || null;
+      renderRule(currentRule);
       paint();
     }
 
@@ -249,12 +262,13 @@
           since: data.since || null,
           truncated: !!data.truncated,
           period: periodLabel(data.days),
+          rule: data.rule || null,
           items: data.evidence
         };
         remember(entry);
 
         status.innerHTML = '<p>Collected at ' + escapeHtml(new Date(data.collected_at).toLocaleString()) + '</p>';
-        showItems(data.evidence, collectionNote(entry), owner + '/' + repo);
+        showItems(data.evidence, collectionNote(entry), owner + '/' + repo, data.rule);
         loadHistory();
       } catch (err) {
         status.innerHTML = '<p class="error">Error: ' + escapeHtml(err.message) + '</p>';
@@ -284,6 +298,7 @@
       const lines = [
         'GitHub review evidence',
         currentHeading || 'Repository',
+        currentRule && currentRule.detail ? currentRule.detail : 'Branch review rule was not checked.',
         'Collected: ' + (document.getElementById('status').innerText || ''),
         currentNote || '',
         reviewed + ' of ' + currentItems.length + ' reviewed. ' + missing + ' missing a review.' + (unknown ? ' ' + unknown + ' could not be checked.' : ''),
@@ -350,7 +365,7 @@
       status.innerHTML = '<p>Showing collection from '
         + escapeHtml(new Date(entry.collected_at).toLocaleString())
         + ' — ' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + '</p>';
-      showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo);
+      showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo, entry.rule);
     }
 
     loadForm();
