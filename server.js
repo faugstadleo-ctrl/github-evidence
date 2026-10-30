@@ -37,12 +37,14 @@ function storeHeaders() {
   return { Authorization: `token ${STORE_TOKEN}`, Accept: 'application/vnd.github+json', 'User-Agent': 'github-evidence-tool' };
 }
 async function rememberInquiry(item) {
-  if (!STORE_TOKEN) return false;
+  if (!STORE_TOKEN) return null;
   const res = await fetch(`https://api.github.com/repos/${STORE_REPO}/issues`, {
     method: 'POST', headers: storeHeaders(),
     body: JSON.stringify({ title: `Access request: ${item.name}`, body: [`Name: ${item.name}`, `Email: ${item.email}`, `Company: ${item.company || 'none'}`, `Note: ${item.note || 'none'}`, `Asked at: ${item.at}`].join('\n') })
   });
-  return res.ok;
+  if (!res.ok) return null;
+  const body = await res.json();
+  return body.number || null;
 }
 async function loadStoredInquiries() {
   if (!STORE_TOKEN) return;
@@ -54,7 +56,7 @@ async function loadStoredInquiries() {
   const stored = requests.map(issue => {
     const body = issue.body || '';
     const value = (label) => { const line = body.split('\n').find(row => row.startsWith(label + ':')); return line ? line.slice(label.length + 1).trim() : ''; };
-    return { name: value('Name') || issue.title.replace('Access request: ', ''), email: value('Email'), company: value('Company') === 'none' ? '' : value('Company'), note: value('Note') === 'none' ? '' : value('Note'), at: value('Asked at') || issue.created_at };
+    return { name: value('Name') || issue.title.replace('Access request: ', ''), email: value('Email'), company: value('Company') === 'none' ? '' : value('Company'), note: value('Note') === 'none' ? '' : value('Note'), at: value('Asked at') || issue.created_at, issue: issue.number };
   }).filter(item => item.email);
   const known = new Set(inquiries.map(item => item.email + '|' + item.at));
   stored.forEach(item => { if (!known.has(item.email + '|' + item.at)) inquiries.push(item); });
@@ -89,7 +91,7 @@ app.get('/login', (req, res) => { if (currentUser(req)) return res.redirect('/ap
 app.get('/app', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/index.html', (req, res) => res.redirect('/'));
 
-app.post('/api/inquire', (req, res) => {
+app.post('/api/inquire', async (req, res) => {
   const name = String(req.body.name || '').trim();
   const company = String(req.body.company || '').trim();
   const email = String(req.body.email || '').trim();
@@ -99,7 +101,8 @@ app.post('/api/inquire', (req, res) => {
   inquiries.push(item);
   if (inquiries.length > 200) inquiries.shift();
   saveInquiries();
-  rememberInquiry(item).catch(() => {});
+  const issue = await rememberInquiry(item);
+  if (issue) { item.issue = issue; saveInquiries(); }
   res.json({ ok: true });
 });
 app.post('/api/login', (req, res) => {
@@ -126,6 +129,21 @@ app.get('/api/me', (req, res) => {
 app.get('/api/inquiries', requireAuth, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   res.json(inquiries);
+});
+app.post('/api/inquiries/done', requireAuth, async (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const at = String(req.body.at || '');
+  const index = inquiries.findIndex(item => item.at === at);
+  if (index < 0) return res.status(404).json({ error: 'Not found' });
+  const item = inquiries[index];
+  if (item.issue && STORE_TOKEN) {
+    await fetch(`https://api.github.com/repos/${STORE_REPO}/issues/${item.issue}`, {
+      method: 'PATCH', headers: storeHeaders(), body: JSON.stringify({ state: 'closed' })
+    }).catch(() => {});
+  }
+  inquiries.splice(index, 1);
+  saveInquiries();
+  res.json({ ok: true });
 });
 app.post('/api/users', requireAuth, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
