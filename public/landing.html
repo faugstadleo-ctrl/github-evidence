@@ -4,34 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flaike</title>
-  <style>
-    * { box-sizing: border-box; }
-    body { margin: 0; font-family: system-ui, sans-serif; color: #1a1a1a; background: #f6f7f9; min-height: 100vh; display: flex; flex-direction: column; }
-    header { background: #111; color: white; }
-    nav { max-width: 1040px; margin: 0 auto; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
-    .brand { color: white; text-decoration: none; font-weight: 700; font-size: 1.15rem; letter-spacing: 0.02em; }
-    .links { display: flex; align-items: center; gap: 22px; }
-    .links a { color: #ddd; text-decoration: none; font-size: 0.95rem; }
-    .links a:hover { color: white; }
-    .links .btn { background: white; color: #111; padding: 8px 14px; border-radius: 6px; font-weight: 600; }
-    main { flex: 1; }
-    .hero { background: white; border-bottom: 1px solid #eee; }
-    .wrap { max-width: 1040px; margin: 0 auto; padding: 64px 24px; }
-    h1 { font-size: 2.4rem; line-height: 1.15; margin: 0 0 16px; }
-    .lead { font-size: 1.15rem; color: #444; max-width: 640px; margin: 0 0 28px; }
-    .cta { display: inline-block; background: #111; color: white; text-decoration: none; padding: 12px 18px; border-radius: 6px; font-weight: 600; }
-    .cta.ghost { background: transparent; color: #111; border: 1px solid #ccc; margin-left: 10px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
-    .card { background: white; border-radius: 10px; padding: 22px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
-    h2 { margin: 0 0 18px; }
-    h3 { margin: 0 0 8px; }
-    p { margin: 0 0 10px; }
-    .muted { color: #666; }
-    footer { background: #111; color: #bbb; margin-top: auto; }
-    .foot { max-width: 1040px; margin: 0 auto; padding: 28px 24px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 0.9rem; }
-    footer a { color: #ddd; text-decoration: none; margin-right: 16px; }
-    footer a:hover { color: white; }
-  </style>
+  <link rel="stylesheet" href="/site.css">
 </head>
 <body>
   <header>
@@ -45,49 +18,31 @@
     </nav>
   </header>
   <main>
-    <section class="hero">
+    <section class="card" style="border-radius:0; margin:0; box-shadow:none; border-bottom:1px solid #eee;">
       <div class="wrap">
-        <h1>Proof that code changes were reviewed.</h1>
-        <p class="lead">Flaike checks a GitHub repository and writes down whether changes were looked at, whether a review was required, and whether tests had to pass before the change went in.</p>
-        <a class="cta" href="/inquire">Ask for access</a>
-        <a class="cta ghost" href="/login">Log in</a>
+        <h1 style="font-size:2.4rem; line-height:1.15; margin:0 0 16px;">Proof that code changes were reviewed.</h1>
+        <p class="muted" style="font-size:1.15rem; max-width:640px;">Flaike checks a GitHub repository and writes down whether changes were looked at, whether a review was required, and whether tests had to pass before the change went in.</p>
+        <a class="btn" href="/inquire" style="display:inline-block; text-decoration:none; margin-right:10px;">Ask for access</a>
+        <a href="/login" style="display:inline-block; padding:8px 14px; border:1px solid #ccc; border-radius:6px; text-decoration:none; font-weight:600;">Log in</a>
       </div>
     </section>
     <section id="product">
       <div class="wrap">
         <h2>What it checks</h2>
-        <div class="grid">
-          <div class="card">
-            <h3>Was it reviewed</h3>
-            <p class="muted">For each change that went in, Flaike lists who looked at it, or that nobody did.</p>
-          </div>
-          <div class="card">
-            <h3>Was a review required</h3>
-            <p class="muted">It checks whether the main branch actually requires a review before a change can be merged.</p>
-          </div>
-          <div class="card">
-            <h3>Can the rule be skipped</h3>
-            <p class="muted">It notes if an admin can bypass the review, and whether tests and force-push rules are weak.</p>
-          </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
+          <div class="card"><h3>Was it reviewed</h3><p class="muted">For each change that went in, Flaike lists who looked at it, or that nobody did.</p></div>
+          <div class="card"><h3>Was a review required</h3><p class="muted">It checks whether the main branch actually requires a review before a change can be merged.</p></div>
+          <div class="card"><h3>Can the rule be skipped</h3><p class="muted">It notes if an admin can bypass the review, and whether tests and force-push rules are weak.</p></div>
         </div>
       </div>
     </section>
     <section style="background:white; border-top:1px solid #eee;">
       <div class="wrap">
         <h2>How it works</h2>
-        <div class="grid">
-          <div class="card">
-            <h3>1. Ask</h3>
-            <p class="muted">You send a request. You do not pay on this page.</p>
-          </div>
-          <div class="card">
-            <h3>2. We look</h3>
-            <p class="muted">We see what you need and whether it fits.</p>
-          </div>
-          <div class="card">
-            <h3>3. You get a login</h3>
-            <p class="muted">If it fits, you get a username and password and can run the check yourself.</p>
-          </div>
+        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
+          <div class="card"><h3>1. Ask</h3><p class="muted">You send a request. You do not pay on this page.</p></div>
+          <div class="card"><h3>2. We look</h3><p class="muted">We see what you need and whether it fits.</p></div>
+          <div class="card"><h3>3. You get a login</h3><p class="muted">If it fits, you get a username and password and can run the check yourself.</p></div>
         </div>
       </div>
     </section>
