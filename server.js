@@ -7,6 +7,7 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PERIOD_DAYS = { '30': 30, '90': 90, '365': 365 };
+const STATUSES = ['approved', 'disapproved', 'ignored'];
 const STORE_TOKEN = process.env.GITHUB_TOKEN || '';
 const STORE_REPO = process.env.STORE_REPO || 'faugstadleo-ctrl/github-evidence';
 const INQUIRY_FILE = path.join(__dirname, 'inquiries.json');
@@ -36,30 +37,64 @@ function saveUsers() {
 function storeHeaders() {
   return { Authorization: `token ${STORE_TOKEN}`, Accept: 'application/vnd.github+json', 'User-Agent': 'github-evidence-tool' };
 }
+function issueBody(item) {
+  return [
+    `Name: ${item.name}`,
+    `Email: ${item.email}`,
+    `Company: ${item.company || 'none'}`,
+    `Note: ${item.note || 'none'}`,
+    `Asked at: ${item.at}`,
+    `Status: ${item.status || 'none'}`,
+    `Reason: ${item.reason || 'none'}`
+  ].join('\n');
+}
 async function rememberInquiry(item) {
   if (!STORE_TOKEN) return null;
   const res = await fetch(`https://api.github.com/repos/${STORE_REPO}/issues`, {
     method: 'POST', headers: storeHeaders(),
-    body: JSON.stringify({ title: `Access request: ${item.name}`, body: [`Name: ${item.name}`, `Email: ${item.email}`, `Company: ${item.company || 'none'}`, `Note: ${item.note || 'none'}`, `Asked at: ${item.at}`].join('\n') })
+    body: JSON.stringify({ title: `Access request: ${item.name}`, body: issueBody(item) })
   });
   if (!res.ok) return null;
   const body = await res.json();
   return body.number || null;
 }
+async function updateIssue(item) {
+  if (!STORE_TOKEN || !item.issue) return;
+  await fetch(`https://api.github.com/repos/${STORE_REPO}/issues/${item.issue}`, {
+    method: 'PATCH', headers: storeHeaders(),
+    body: JSON.stringify({ body: issueBody(item), state: item.status ? 'closed' : 'open' })
+  }).catch(() => {});
+}
 async function loadStoredInquiries() {
   if (!STORE_TOKEN) return;
-  const res = await fetch(`https://api.github.com/repos/${STORE_REPO}/issues?state=open&per_page=100`, { headers: storeHeaders() });
-  if (!res.ok) return;
-  const issues = await res.json();
-  if (!Array.isArray(issues)) return;
-  const requests = issues.filter(issue => (issue.title || '').startsWith('Access request:'));
-  const stored = requests.map(issue => {
-    const body = issue.body || '';
-    const value = (label) => { const line = body.split('\n').find(row => row.startsWith(label + ':')); return line ? line.slice(label.length + 1).trim() : ''; };
-    return { name: value('Name') || issue.title.replace('Access request: ', ''), email: value('Email'), company: value('Company') === 'none' ? '' : value('Company'), note: value('Note') === 'none' ? '' : value('Note'), at: value('Asked at') || issue.created_at, issue: issue.number };
-  }).filter(item => item.email);
+  const states = ['open', 'closed'];
+  const found = [];
+  for (const state of states) {
+    const res = await fetch(`https://api.github.com/repos/${STORE_REPO}/issues?state=${state}&per_page=100`, { headers: storeHeaders() });
+    if (!res.ok) continue;
+    const issues = await res.json();
+    if (!Array.isArray(issues)) continue;
+    issues.filter(issue => (issue.title || '').startsWith('Access request:')).forEach(issue => {
+      const body = issue.body || '';
+      const value = (label) => { const line = body.split('\n').find(row => row.startsWith(label + ':')); return line ? line.slice(label.length + 1).trim() : ''; };
+      const status = value('Status');
+      const reason = value('Reason');
+      found.push({
+        name: value('Name') || issue.title.replace('Access request: ', ''),
+        email: value('Email'),
+        company: value('Company') === 'none' ? '' : value('Company'),
+        note: value('Note') === 'none' ? '' : value('Note'),
+        at: value('Asked at') || issue.created_at,
+        status: STATUSES.includes(status) ? status : '',
+        reason: reason === 'none' ? '' : reason,
+        issue: issue.number
+      });
+    });
+  }
   const known = new Set(inquiries.map(item => item.email + '|' + item.at));
-  stored.forEach(item => { if (!known.has(item.email + '|' + item.at)) inquiries.push(item); });
+  found.filter(item => item.email).forEach(item => {
+    if (!known.has(item.email + '|' + item.at)) inquiries.push(item);
+  });
   saveInquiries();
 }
 loadStoredInquiries().catch(() => {});
@@ -85,10 +120,18 @@ function requireAuth(req, res, next) {
   req.user = user;
   next();
 }
+function requireAdmin(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  next();
+}
 
 app.get('/', (req, res) => { if (currentUser(req)) return res.redirect('/app'); res.sendFile(path.join(__dirname, 'public', 'landing.html')); });
 app.get('/login', (req, res) => { if (currentUser(req)) return res.redirect('/app'); res.sendFile(path.join(__dirname, 'public', 'login.html')); });
 app.get('/app', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/logs', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.redirect('/app');
+  res.sendFile(path.join(__dirname, 'public', 'logs.html'));
+});
 app.get('/index.html', (req, res) => res.redirect('/'));
 
 app.post('/api/inquire', async (req, res) => {
@@ -97,9 +140,9 @@ app.post('/api/inquire', async (req, res) => {
   const email = String(req.body.email || '').trim();
   const note = String(req.body.note || '').trim();
   if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
-  const item = { name, company, email, note, at: new Date().toISOString() };
+  const item = { name, company, email, note, at: new Date().toISOString(), status: '', reason: '' };
   inquiries.push(item);
-  if (inquiries.length > 200) inquiries.shift();
+  if (inquiries.length > 400) inquiries.shift();
   saveInquiries();
   const issue = await rememberInquiry(item);
   if (issue) { item.issue = issue; saveInquiries(); }
@@ -126,31 +169,24 @@ app.get('/api/me', (req, res) => {
   if (!user) return res.status(401).json({ error: 'Not logged in' });
   res.json({ username: user.username, role: user.role, requests_kept: !!STORE_TOKEN });
 });
-app.get('/api/inquiries', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
-  res.json(inquiries);
-});
-app.post('/api/inquiries/done', requireAuth, async (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+app.get('/api/inquiries', requireAuth, requireAdmin, (req, res) => res.json(inquiries));
+app.post('/api/inquiries/status', requireAuth, requireAdmin, async (req, res) => {
   const at = String(req.body.at || '');
-  const index = inquiries.findIndex(item => item.at === at);
-  if (index < 0) return res.status(404).json({ error: 'Not found' });
-  const item = inquiries[index];
-  if (item.issue && STORE_TOKEN) {
-    await fetch(`https://api.github.com/repos/${STORE_REPO}/issues/${item.issue}`, {
-      method: 'PATCH', headers: storeHeaders(), body: JSON.stringify({ state: 'closed' })
-    }).catch(() => {});
-  }
-  inquiries.splice(index, 1);
+  const status = String(req.body.status || '');
+  const reason = String(req.body.reason || '').trim();
+  if (!STATUSES.includes(status)) return res.status(400).json({ error: 'Choose approved, disapproved, or ignored' });
+  const item = inquiries.find(entry => entry.at === at);
+  if (!item) return res.status(404).json({ error: 'Not found' });
+  item.status = status;
+  item.reason = reason;
   saveInquiries();
+  await updateIssue(item);
   res.json({ ok: true });
 });
-app.get('/api/users', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+app.get('/api/users', requireAuth, requireAdmin, (req, res) => {
   res.json(Object.keys(users).filter(name => name !== 'admin').map(username => ({ username })));
 });
-app.post('/api/users', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+app.post('/api/users', requireAuth, requireAdmin, (req, res) => {
   const username = String(req.body.username || '').trim();
   const password = String(req.body.password || '');
   if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
@@ -159,8 +195,7 @@ app.post('/api/users', requireAuth, (req, res) => {
   saveUsers();
   res.json({ ok: true });
 });
-app.post('/api/users/remove', requireAuth, (req, res) => {
-  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+app.post('/api/users/remove', requireAuth, requireAdmin, (req, res) => {
   const username = String(req.body.username || '').trim();
   if (!username || username === 'admin') return res.status(400).json({ error: 'Cannot remove that login' });
   if (!users[username]) return res.status(404).json({ error: 'Not found' });
