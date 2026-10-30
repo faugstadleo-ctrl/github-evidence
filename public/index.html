@@ -71,6 +71,7 @@
 
   <div id="admin" style="display:none;">
     <h2>Requests for access</h2>
+    <p class="meta" id="keep-note"></p>
     <div id="inquiries" class="card">Loading...</div>
     <div class="card">
       <h3>Give someone access</h3>
@@ -415,6 +416,9 @@
       const user = await me.json();
       if (user.role !== 'admin') return;
       document.getElementById('admin').style.display = 'block';
+      document.getElementById('keep-note').textContent = user.requests_kept
+        ? 'Requests are kept even if the site restarts. You also get a GitHub issue for each one.'
+        : 'Requests can disappear if the site restarts. Add GITHUB_TOKEN on Render to keep them.';
       const res = await fetch('/api/inquiries');
       const list = await res.json();
       const box = document.getElementById('inquiries');
