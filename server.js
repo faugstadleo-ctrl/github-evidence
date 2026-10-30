@@ -3,6 +3,7 @@ const crypto = require('crypto');
 const fetch = require('node-fetch');
 const fs = require('fs');
 const path = require('path');
+const nodemailer = require('nodemailer');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -10,6 +11,9 @@ const PERIOD_DAYS = { '30': 30, '90': 90, '365': 365 };
 const STATUSES = ['approved', 'disapproved', 'ignored'];
 const STORE_TOKEN = process.env.GITHUB_TOKEN || '';
 const STORE_REPO = process.env.STORE_REPO || 'faugstadleo-ctrl/github-evidence';
+const COOKIE_SECRET = process.env.COOKIE_SECRET || 'flaike-cookie-secret-2026';
+const COOKIE_DAYS = 14;
+const MAIL_TO = process.env.MAIL_TO || '';
 const INQUIRY_FILE = path.join(__dirname, 'inquiries.json');
 const USERS_FILE = path.join(__dirname, 'users.json');
 
@@ -23,17 +27,12 @@ function writeJsonFile(file, value) {
 let evidenceHistory = [];
 let inquiries = readJsonFile(INQUIRY_FILE, []);
 if (!Array.isArray(inquiries)) inquiries = [];
-const sessions = new Map();
 const users = Object.assign({
   admin: { password: process.env.ADMIN_PASSWORD || 'admin-access-2026', role: 'admin' }
 }, readJsonFile(USERS_FILE, {}));
 
 function saveInquiries() { writeJsonFile(INQUIRY_FILE, inquiries); }
-function saveUsers() {
-  const extra = Object.assign({}, users);
-  delete extra.admin;
-  writeJsonFile(USERS_FILE, extra);
-}
+function saveUsers() { writeJsonFile(USERS_FILE, users); }
 function storeHeaders() {
   return { Authorization: `token ${STORE_TOKEN}`, Accept: 'application/vnd.github+json', 'User-Agent': 'github-evidence-tool' };
 }
@@ -99,6 +98,24 @@ async function loadStoredInquiries() {
 }
 loadStoredInquiries().catch(() => {});
 
+const mailer = process.env.MAIL_HOST && process.env.MAIL_USER && process.env.MAIL_PASS
+  ? nodemailer.createTransport({
+      host: process.env.MAIL_HOST,
+      port: Number(process.env.MAIL_PORT || 587),
+      secure: String(process.env.MAIL_PORT || '') === '465',
+      auth: { user: process.env.MAIL_USER, pass: process.env.MAIL_PASS }
+    })
+  : null;
+async function mailInquiry(item) {
+  if (!mailer || !MAIL_TO) return;
+  await mailer.sendMail({
+    from: process.env.MAIL_FROM || process.env.MAIL_USER,
+    to: MAIL_TO,
+    subject: `New access request from ${item.name}`,
+    text: [`Name: ${item.name}`, `Email: ${item.email}`, `Company: ${item.company || 'none'}`, `Note: ${item.note || 'none'}`].join('\n')
+  }).catch(() => {});
+}
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
 
@@ -110,7 +127,30 @@ function parseCookies(req) {
   });
   return out;
 }
-function currentUser(req) { return sessions.get(parseCookies(req).sid) || null; }
+function sign(value) {
+  return crypto.createHmac('sha256', COOKIE_SECRET).update(value).digest('base64url');
+}
+function makeCookie(username, role) {
+  const payload = Buffer.from(JSON.stringify({ username, role, exp: Date.now() + COOKIE_DAYS * 86400000 })).toString('base64url');
+  return payload + '.' + sign(payload);
+}
+function currentUser(req) {
+  const raw = parseCookies(req).sid || '';
+  const dot = raw.lastIndexOf('.');
+  if (dot < 1) return null;
+  const payload = raw.slice(0, dot);
+  if (sign(payload) !== raw.slice(dot + 1)) return null;
+  try {
+    const data = JSON.parse(Buffer.from(payload, 'base64url').toString());
+    if (!data.exp || data.exp < Date.now()) return null;
+    if (!users[data.username]) return null;
+    return { username: data.username, role: data.role };
+  } catch { return null; }
+}
+function cookieFlags(req) {
+  const secure = req.headers['x-forwarded-proto'] === 'https';
+  return `HttpOnly; SameSite=Lax; Path=/; Max-Age=${COOKIE_DAYS * 86400}${secure ? '; Secure' : ''}`;
+}
 function requireAuth(req, res, next) {
   const user = currentUser(req);
   if (!user) {
@@ -128,6 +168,10 @@ function requireAdmin(req, res, next) {
 app.get('/', (req, res) => { if (currentUser(req)) return res.redirect('/app'); res.sendFile(path.join(__dirname, 'public', 'landing.html')); });
 app.get('/login', (req, res) => { if (currentUser(req)) return res.redirect('/app'); res.sendFile(path.join(__dirname, 'public', 'login.html')); });
 app.get('/app', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
+app.get('/admin', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.redirect('/app');
+  res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
 app.get('/logs', requireAuth, (req, res) => {
   if (req.user.role !== 'admin') return res.redirect('/app');
   res.sendFile(path.join(__dirname, 'public', 'logs.html'));
@@ -146,6 +190,7 @@ app.post('/api/inquire', async (req, res) => {
   saveInquiries();
   const issue = await rememberInquiry(item);
   if (issue) { item.issue = issue; saveInquiries(); }
+  await mailInquiry(item);
   res.json({ ok: true });
 });
 app.post('/api/login', (req, res) => {
@@ -153,21 +198,27 @@ app.post('/api/login', (req, res) => {
   const password = String(req.body.password || '');
   const user = users[username];
   if (!user || user.password !== password) return res.status(401).json({ error: 'Wrong username or password' });
-  const sid = crypto.randomBytes(24).toString('hex');
-  sessions.set(sid, { username, role: user.role });
-  res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600`);
+  res.setHeader('Set-Cookie', `sid=${makeCookie(username, user.role)}; ${cookieFlags(req)}`);
   res.json({ ok: true, role: user.role });
 });
 app.post('/api/logout', (req, res) => {
-  const cookies = parseCookies(req);
-  if (cookies.sid) sessions.delete(cookies.sid);
   res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
   res.json({ ok: true });
 });
 app.get('/api/me', (req, res) => {
   const user = currentUser(req);
   if (!user) return res.status(401).json({ error: 'Not logged in' });
-  res.json({ username: user.username, role: user.role, requests_kept: !!STORE_TOKEN });
+  res.json({ username: user.username, role: user.role, requests_kept: !!STORE_TOKEN, mail_ready: !!(mailer && MAIL_TO) });
+});
+app.post('/api/password', requireAuth, (req, res) => {
+  const current = String(req.body.current || '');
+  const next = String(req.body.next || '');
+  const user = users[req.user.username];
+  if (!user || user.password !== current) return res.status(401).json({ error: 'Current password is wrong' });
+  if (!next) return res.status(400).json({ error: 'New password is required' });
+  user.password = next;
+  saveUsers();
+  res.json({ ok: true });
 });
 app.get('/api/inquiries', requireAuth, requireAdmin, (req, res) => res.json(inquiries));
 app.post('/api/inquiries/status', requireAuth, requireAdmin, async (req, res) => {
@@ -201,9 +252,6 @@ app.post('/api/users/remove', requireAuth, requireAdmin, (req, res) => {
   if (!users[username]) return res.status(404).json({ error: 'Not found' });
   delete users[username];
   saveUsers();
-  for (const [sid, user] of sessions) {
-    if (user.username === username) sessions.delete(sid);
-  }
   res.json({ ok: true });
 });
 
