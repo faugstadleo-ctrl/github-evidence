@@ -1,21 +1,111 @@
 const express = require('express');
 const crypto = require('crypto');
 const fetch = require('node-fetch');
+const fs = require('fs');
 const path = require('path');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const PERIOD_DAYS = { '30': 30, '90': 90, '365': 365 };
+const STORE_TOKEN = process.env.GITHUB_TOKEN || '';
+const STORE_REPO = process.env.STORE_REPO || 'faugstadleo-ctrl/github-evidence';
+const INQUIRY_FILE = path.join(__dirname, 'inquiries.json');
+const USERS_FILE = path.join(__dirname, 'users.json');
+
+function readJsonFile(file, fallback) {
+  try {
+    return JSON.parse(fs.readFileSync(file, 'utf8'));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJsonFile(file, value) {
+  try {
+    fs.writeFileSync(file, JSON.stringify(value));
+  } catch {}
+}
 
 let evidenceHistory = [];
-let inquiries = [];
+let inquiries = readJsonFile(INQUIRY_FILE, []);
+if (!Array.isArray(inquiries)) inquiries = [];
 const sessions = new Map();
-const users = {
+const users = Object.assign({
   admin: {
     password: process.env.ADMIN_PASSWORD || 'admin-access-2026',
     role: 'admin'
   }
-};
+}, readJsonFile(USERS_FILE, {}));
+
+function saveInquiries() {
+  writeJsonFile(INQUIRY_FILE, inquiries);
+}
+
+function saveUsers() {
+  const extra = Object.assign({}, users);
+  delete extra.admin;
+  writeJsonFile(USERS_FILE, extra);
+}
+
+function storeHeaders() {
+  return {
+    Authorization: `token ${STORE_TOKEN}`,
+    Accept: 'application/vnd.github+json',
+    'User-Agent': 'github-evidence-tool'
+  };
+}
+
+async function rememberInquiry(item) {
+  if (!STORE_TOKEN) return false;
+  const res = await fetch(`https://api.github.com/repos/${STORE_REPO}/issues`, {
+    method: 'POST',
+    headers: storeHeaders(),
+    body: JSON.stringify({
+      title: `Access request: ${item.name}`,
+      body: [
+        `Name: ${item.name}`,
+        `Email: ${item.email}`,
+        `Company: ${item.company || 'none'}`,
+        `Note: ${item.note || 'none'}`,
+        `Asked at: ${item.at}`
+      ].join('\n')
+    })
+  });
+  return res.ok;
+}
+
+async function loadStoredInquiries() {
+  if (!STORE_TOKEN) return;
+  const res = await fetch(
+    `https://api.github.com/repos/${STORE_REPO}/issues?state=open&per_page=100`,
+    { headers: storeHeaders() }
+  );
+  if (!res.ok) return;
+  const issues = await res.json();
+  if (!Array.isArray(issues)) return;
+  const requests = issues.filter(issue => (issue.title || '').startsWith('Access request:'));
+  const stored = requests.map(issue => {
+    const body = issue.body || '';
+    const value = (label) => {
+      const line = body.split('\n').find(row => row.startsWith(label + ':'));
+      return line ? line.slice(label.length + 1).trim() : '';
+    };
+    return {
+      name: value('Name') || issue.title.replace('Access request: ', ''),
+      email: value('Email'),
+      company: value('Company') === 'none' ? '' : value('Company'),
+      note: value('Note') === 'none' ? '' : value('Note'),
+      at: value('Asked at') || issue.created_at
+    };
+  }).filter(item => item.email);
+  const known = new Set(inquiries.map(item => item.email + '|' + item.at));
+  stored.forEach(item => {
+    if (!known.has(item.email + '|' + item.at)) inquiries.push(item);
+  });
+  saveInquiries();
+}
+
+loadStoredInquiries().catch(() => {});
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public'), { index: false }));
@@ -68,8 +158,11 @@ app.post('/api/inquire', (req, res) => {
   const email = String(req.body.email || '').trim();
   const note = String(req.body.note || '').trim();
   if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
-  inquiries.push({ name, company, email, note, at: new Date().toISOString() });
+  const item = { name, company, email, note, at: new Date().toISOString() };
+  inquiries.push(item);
   if (inquiries.length > 200) inquiries.shift();
+  saveInquiries();
+  rememberInquiry(item).catch(() => {});
   res.json({ ok: true });
 });
 
@@ -96,7 +189,7 @@ app.post('/api/logout', (req, res) => {
 app.get('/api/me', (req, res) => {
   const user = currentUser(req);
   if (!user) return res.status(401).json({ error: 'Not logged in' });
-  res.json(user);
+  res.json({ username: user.username, role: user.role, requests_kept: !!STORE_TOKEN });
 });
 
 app.get('/api/inquiries', requireAuth, (req, res) => {
@@ -111,6 +204,7 @@ app.post('/api/users', requireAuth, (req, res) => {
   if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
   if (username === 'admin') return res.status(400).json({ error: 'That username is reserved' });
   users[username] = { password, role: 'user' };
+  saveUsers();
   res.json({ ok: true });
 });
 
