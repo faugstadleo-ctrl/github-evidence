@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ask for access — Flaike</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; font-family: system-ui, sans-serif; color: #1a1a1a; background: #f6f7f9; min-height: 100vh; display: flex; flex-direction: column; }
+    header { background: #111; color: white; }
+    nav { max-width: 1040px; margin: 0 auto; padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; }
+    .brand { color: white; text-decoration: none; font-weight: 700; font-size: 1.15rem; }
+    .links { display: flex; align-items: center; gap: 22px; }
+    .links a { color: #ddd; text-decoration: none; }
+    .links a:hover { color: white; }
+    .links .btn { background: white; color: #111; padding: 8px 14px; border-radius: 6px; font-weight: 600; }
+    main { flex: 1; }
+    .wrap { max-width: 640px; margin: 0 auto; padding: 48px 24px; }
+    .card { background: white; border-radius: 10px; padding: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.06); }
+    label { display: block; margin: 12px 0 4px; font-weight: 500; }
+    input, textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 6px; font: inherit; }
+    textarea { min-height: 100px; resize: vertical; }
+    button { background: #111; color: white; border: none; padding: 12px 16px; border-radius: 6px; cursor: pointer; margin-top: 14px; font-weight: 600; }
+    .ok { color: #1e7e34; }
+    .error { color: #c0392b; }
+    .muted { color: #666; }
+    footer { background: #111; color: #bbb; margin-top: auto; }
+    .foot { max-width: 1040px; margin: 0 auto; padding: 28px 24px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; font-size: 0.9rem; }
+    footer a { color: #ddd; text-decoration: none; margin-right: 16px; }
+  </style>
+</head>
+<body>
+  <header>
+    <nav>
+      <a class="brand" href="/">Flaike</a>
+      <div class="links">
+        <a href="/">Product</a>
+        <a href="/inquire">Ask for access</a>
+        <a class="btn" href="/login">Log in</a>
+      </div>
+    </nav>
+  </header>
+  <main>
+    <div class="wrap">
+      <h1>Ask for access</h1>
+      <p class="muted">Tell us what you need. We look at it and get back to you. You do not pay on this page.</p>
+      <div class="card">
+        <label>Name</label>
+        <input id="name" placeholder="Your name">
+        <label>Company</label>
+        <input id="company" placeholder="Company name">
+        <label>Email</label>
+        <input id="email" type="email" placeholder="you@company.com">
+        <label>What do you need?</label>
+        <textarea id="note" placeholder="For example: we need proof that pull requests were reviewed for an upcoming audit."></textarea>
+        <button onclick="sendInquiry()">Send request</button>
+        <p id="status"></p>
+      </div>
+    </div>
+  </main>
+  <footer>
+    <div class="foot">
+      <span>Flaike · 2026</span>
+      <span>
+        <a href="/terms">Terms of use</a>
+        <a href="/">Product</a>
+        <a href="/login">Log in</a>
+      </span>
+    </div>
+  </footer>
+  <script>
+    async function sendInquiry() {
+      const status = document.getElementById('status');
+      const body = {
+        name: document.getElementById('name').value.trim(),
+        company: document.getElementById('company').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        note: document.getElementById('note').value.trim()
+      };
+      if (!body.name || !body.email) {
+        status.innerHTML = '<span class="error">Name and email are required.</span>';
+        return;
+      }
+      status.textContent = 'Sending...';
+      try {
+        const res = await fetch('/api/inquire', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not send');
+        status.innerHTML = '<span class="ok">Request sent. We will get back to you.</span>';
+        document.getElementById('name').value = '';
+        document.getElementById('company').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('note').value = '';
+      } catch (err) {
+        status.innerHTML = '<span class="error">' + err.message + '</span>';
+      }
+    }
+  </script>
+</body>
+</html>
