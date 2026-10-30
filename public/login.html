@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Log in — GitHub Evidence</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 480px; margin: 60px auto; padding: 0 20px; background: #f8f9fa; }
+    .card { background: white; border-radius: 8px; padding: 20px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    label { display: block; margin: 10px 0 4px; font-weight: 500; }
+    input { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    button { background: #0366d6; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
+    button:hover { background: #0256b9; }
+    a { color: #0366d6; }
+    .error { color: #dc3545; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Log in</h1>
+    <p>Use the username and password you were given.</p>
+    <label>Username</label>
+    <input id="username" autocomplete="username">
+    <label>Password</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button onclick="login()">Log in</button>
+    <p id="status" class="error"></p>
+    <p><a href="/">Back</a></p>
+  </div>
+  <script>
+    document.getElementById('password').addEventListener('keydown', function (event) {
+      if (event.key === 'Enter') login();
+    });
+    async function login() {
+      const status = document.getElementById('status');
+      status.textContent = '';
+      const res = await fetch('/api/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          username: document.getElementById('username').value.trim(),
+          password: document.getElementById('password').value
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        status.textContent = data.error || 'Login failed';
+        return;
+      }
+      window.location.href = '/app';
+    }
+  </script>
+</body>
+</html>
