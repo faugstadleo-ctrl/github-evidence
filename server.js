@@ -167,6 +167,8 @@ function requireAdmin(req, res, next) {
 
 app.get('/', (req, res) => { if (currentUser(req)) return res.redirect('/app'); res.sendFile(path.join(__dirname, 'public', 'landing.html')); });
 app.get('/login', (req, res) => { if (currentUser(req)) return res.redirect('/app'); res.sendFile(path.join(__dirname, 'public', 'login.html')); });
+app.get('/inquire', (req, res) => res.sendFile(path.join(__dirname, 'public', 'inquire.html')));
+app.get('/terms', (req, res) => res.sendFile(path.join(__dirname, 'public', 'terms.html')));
 app.get('/app', requireAuth, (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.html')));
 app.get('/admin', requireAuth, (req, res) => {
   if (req.user.role !== 'admin') return res.redirect('/app');
