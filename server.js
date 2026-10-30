@@ -145,6 +145,10 @@ app.post('/api/inquiries/done', requireAuth, async (req, res) => {
   saveInquiries();
   res.json({ ok: true });
 });
+app.get('/api/users', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  res.json(Object.keys(users).filter(name => name !== 'admin').map(username => ({ username })));
+});
 app.post('/api/users', requireAuth, (req, res) => {
   if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
   const username = String(req.body.username || '').trim();
@@ -153,6 +157,18 @@ app.post('/api/users', requireAuth, (req, res) => {
   if (username === 'admin') return res.status(400).json({ error: 'That username is reserved' });
   users[username] = { password, role: 'user' };
   saveUsers();
+  res.json({ ok: true });
+});
+app.post('/api/users/remove', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const username = String(req.body.username || '').trim();
+  if (!username || username === 'admin') return res.status(400).json({ error: 'Cannot remove that login' });
+  if (!users[username]) return res.status(404).json({ error: 'Not found' });
+  delete users[username];
+  saveUsers();
+  for (const [sid, user] of sessions) {
+    if (user.username === username) sessions.delete(sid);
+  }
   res.json({ ok: true });
 });
 
