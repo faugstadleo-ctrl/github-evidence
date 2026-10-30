@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>GitHub Evidence</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 720px; margin: 40px auto; padding: 0 20px; background: #f8f9fa; color: #222; }
+    h1 { margin-bottom: 0.4rem; }
+    .card { background: white; border-radius: 8px; padding: 20px; margin: 20px 0; box-shadow: 0 1px 3px rgba(0,0,0,0.1); }
+    label { display: block; margin: 10px 0 4px; font-weight: 500; }
+    input, textarea { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
+    textarea { min-height: 90px; resize: vertical; }
+    button { background: #0366d6; color: white; border: none; padding: 10px 16px; border-radius: 4px; cursor: pointer; margin-top: 12px; }
+    button:hover { background: #0256b9; }
+    a { color: #0366d6; }
+    .ok { color: #28a745; }
+    .error { color: #dc3545; }
+    .meta { color: #666; }
+  </style>
+</head>
+<body>
+  <h1>GitHub Evidence</h1>
+  <p>Proof that code changes were reviewed before they were merged.</p>
+
+  <div class="card">
+    <p>This is for companies that have to show an auditor that changes to their code went through a review. You do not get access by paying on this page. You ask, we look at what you need, and if it fits we give you a login.</p>
+    <p class="meta">Already have access? <a href="/login">Log in</a></p>
+  </div>
+
+  <div class="card">
+    <h2>Ask for access</h2>
+    <label>Name</label>
+    <input id="name" placeholder="Your name">
+    <label>Company</label>
+    <input id="company" placeholder="Company name">
+    <label>Email</label>
+    <input id="email" type="email" placeholder="you@company.com">
+    <label>What do you need?</label>
+    <textarea id="note" placeholder="For example: we need proof that pull requests were reviewed for an upcoming audit."></textarea>
+    <button onclick="sendInquiry()">Send request</button>
+    <p id="status"></p>
+  </div>
+
+  <script>
+    async function sendInquiry() {
+      const status = document.getElementById('status');
+      const body = {
+        name: document.getElementById('name').value.trim(),
+        company: document.getElementById('company').value.trim(),
+        email: document.getElementById('email').value.trim(),
+        note: document.getElementById('note').value.trim()
+      };
+      if (!body.name || !body.email) {
+        status.innerHTML = '<span class="error">Name and email are required.</span>';
+        return;
+      }
+      status.textContent = 'Sending...';
+      try {
+        const res = await fetch('/api/inquire', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.error || 'Could not send');
+        status.innerHTML = '<span class="ok">Request sent. We will get back to you.</span>';
+        document.getElementById('name').value = '';
+        document.getElementById('company').value = '';
+        document.getElementById('email').value = '';
+        document.getElementById('note').value = '';
+      } catch (err) {
+        status.innerHTML = '<span class="error">' + err.message + '</span>';
+      }
+    }
+  </script>
+</body>
+</html>
