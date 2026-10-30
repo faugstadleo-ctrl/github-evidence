@@ -33,7 +33,6 @@
     <button class="secondary" onclick="logout()" style="margin-top:0;">Log out</button>
   </div>
   <p>Collect proof that merged pull requests were reviewed.</p>
-
   <div class="card">
     <label>Owner (username or org)</label>
     <input id="owner" placeholder="e.g. octocat" value="octocat">
@@ -53,10 +52,10 @@
     <button class="secondary" onclick="exportEvidence()">Export JSON</button>
     <button class="secondary" onclick="clearSaved()">Clear saved details</button>
   </div>
-
   <div id="status"></div>
   <div id="rule"></div>
   <div id="access"></div>
+  <div id="checks"></div>
   <div id="summary"></div>
   <div id="filters">
     <button type="button" class="filter active" data-filter="all" onclick="setFilter('all')">All</button>
@@ -64,398 +63,62 @@
     <button type="button" class="filter" data-filter="reviewed" onclick="setFilter('reviewed')">Reviewed</button>
   </div>
   <div id="results"></div>
-
   <h2>Previous collections</h2>
   <p class="meta">Saved in this browser. They stay after a refresh or a site restart.</p>
   <div id="history" class="card">Loading...</div>
-
   <div id="admin" style="display:none;">
     <h2>Requests for access</h2>
     <p class="meta" id="keep-note"></p>
     <div id="inquiries" class="card">Loading...</div>
     <div class="card">
-      <h3>Give someone access</h3>
+      <h3>Approve a customer</h3>
+      <p class="meta">Only for someone you have already agreed with and who has paid. This creates their login.</p>
       <label>Username</label>
       <input id="new-user" placeholder="username">
       <label>Password</label>
-      <input id="new-pass" placeholder="password they will use">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input id="new-pass" type="password" placeholder="password they will use" style="flex:1;">
+        <button type="button" class="secondary" id="show-new-pass" onclick="toggleNewPass()" style="margin-top:0;">Show</button>
+      </div>
       <button onclick="createUser()">Create login</button>
       <p id="user-status"></p>
     </div>
   </div>
-
   <script>
     const STORAGE_KEY = 'github-evidence-history';
     const FORM_KEY = 'github-evidence-form';
     const MAX_HISTORY = 20;
-    let currentItems = [];
-    let currentFilter = 'all';
-    let currentNote = '';
-    let currentHeading = '';
-    let currentRule = null;
-    let currentAccess = null;
-
-    function escapeHtml(value) {
-      return String(value ?? '')
-        .replace(/&/g, '&' + 'amp;')
-        .replace(/</g, '&' + 'lt;')
-        .replace(/>/g, '&' + 'gt;')
-        .replace(/"/g, '&' + 'quot;');
-    }
-
-    function periodLabel(days) {
-      if (String(days) === '30') return 'Last 30 days';
-      if (String(days) === '90') return 'Last 90 days';
-      if (String(days) === '365') return 'Last 12 months';
-      return 'Latest 100';
-    }
-
-    function loadStored() {
-      try {
-        const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]');
-        return Array.isArray(parsed) ? parsed : [];
-      } catch {
-        return [];
-      }
-    }
-
-    function saveStored(list) {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
-    }
-
-    function remember(entry) {
-      const list = loadStored();
-      list.push(entry);
-      while (list.length > MAX_HISTORY) list.shift();
-      saveStored(list);
-    }
-
-    function loadForm() {
-      try {
-        const saved = JSON.parse(localStorage.getItem(FORM_KEY) || '{}');
-        if (saved.owner) document.getElementById('owner').value = saved.owner;
-        if (saved.repo) document.getElementById('repo').value = saved.repo;
-        if (saved.token) document.getElementById('token').value = saved.token;
-        if (saved.days !== undefined) document.getElementById('days').value = saved.days;
-      } catch {}
-    }
-
-    function saveForm() {
-      localStorage.setItem(FORM_KEY, JSON.stringify({
-        owner: document.getElementById('owner').value.trim(),
-        repo: document.getElementById('repo').value.trim(),
-        token: document.getElementById('token').value.trim(),
-        days: document.getElementById('days').value
-      }));
-    }
-
-    function clearSaved() {
-      localStorage.removeItem(FORM_KEY);
-      document.getElementById('token').value = '';
-      document.getElementById('status').innerHTML = '<p>Saved owner, repo, token, and period were cleared from this browser.</p>';
-    }
-
-    function renderFinding(id, finding) {
-      const box = document.getElementById(id);
-      if (!finding || !finding.detail) {
-        box.innerHTML = '';
-        return;
-      }
-      const css = finding.status === 'ok' || finding.status === 'required'
-        ? 'ok'
-        : (finding.status === 'missing' || finding.status === 'not_required' ? 'missing' : 'unknown');
-      box.innerHTML = '<div class="card"><span class="' + css + '">' + escapeHtml(finding.detail) + '</span></div>';
-    }
-
-    function renderRule(rule) {
-      renderFinding('rule', rule);
-    }
-
-    function renderAccess(access) {
-      renderFinding('access', access);
-    }
-    function reviewLine(pr) {
-      if (pr.review_unknown) return 'Could not check reviews';
-      if (pr.has_review) return 'Reviewed by ' + ((pr.reviewers || []).join(', ') || 'someone');
-      return 'No review';
-    }
-
-    function renderItems(items) {
-      if (!items || items.length === 0) {
-        return '<div class="card"><p>Nothing in this view.</p></div>';
-      }
-      let html = '<div class="card">';
-      items.forEach(pr => {
-        const text = reviewLine(pr);
-        const css = pr.review_unknown ? 'unknown' : (pr.has_review ? 'ok' : 'missing');
-        html += '<div class="pr">'
-          + '<strong><a href="' + escapeHtml(pr.url) + '" target="_blank" rel="noopener">#'
-          + escapeHtml(pr.id) + ' ' + escapeHtml(pr.title) + '</a></strong><br>'
-          + '<span class="' + css + '">' + escapeHtml(text) + '</span><br>'
-          + '<span class="meta">Merged: ' + escapeHtml(new Date(pr.merged_at).toLocaleString()) + '</span>'
-          + '</div>';
-      });
-      html += '</div>';
-      return html;
-    }
-
-    function visibleItems() {
-      if (currentFilter === 'missing') return currentItems.filter(item => !item.has_review && !item.review_unknown);
-      if (currentFilter === 'reviewed') return currentItems.filter(item => item.has_review && !item.review_unknown);
-      return currentItems;
-    }
-
-    function setFilter(name) {
-      currentFilter = name;
-      paint();
-    }
-
-    function paint() {
-      const filters = document.getElementById('filters');
-      const summary = document.getElementById('summary');
-      const results = document.getElementById('results');
-      const total = currentItems.length;
-      const reviewed = currentItems.filter(item => item.has_review && !item.review_unknown).length;
-      const unknown = currentItems.filter(item => item.review_unknown).length;
-      const missing = total - reviewed - unknown;
-
-      document.querySelectorAll('#filters button').forEach(button => {
-        button.classList.toggle('active', button.dataset.filter === currentFilter);
-      });
-
-      if (!total) {
-        filters.style.display = 'none';
-        summary.innerHTML = '';
-        results.innerHTML = '<div class="card"><p>No merged pull requests found.</p></div>';
-        return;
-      }
-
-      filters.style.display = 'block';
-      let text = '<p><strong>' + reviewed + ' of ' + total + ' reviewed.</strong> ' + missing + ' missing a review.';
-      if (unknown) text += ' ' + unknown + ' could not be checked.';
-      if (currentNote) text += '<br><span class="meta">' + escapeHtml(currentNote) + '</span>';
-      text += '</p>';
-      summary.innerHTML = text;
-      results.innerHTML = renderItems(visibleItems());
-    }
-
-    function showItems(items, note, heading, rule, access) {
-      currentItems = items || [];
-      currentFilter = 'all';
-      currentNote = note || '';
-      currentHeading = heading || '';
-      currentRule = rule || null;
-      currentAccess = access || null;
-      renderRule(currentRule);
-      renderAccess(currentAccess);
-      paint();
-    }
-
-    function collectionNote(entry) {
-      const parts = [entry.period || periodLabel(entry.days)];
-      if (entry.since) parts.push('from ' + new Date(entry.since).toLocaleDateString());
-      if (entry.truncated) parts.push('Stopped early because there were too many pull requests. Some older ones in this period may be missing.');
-      return parts.join('. ').replace('..', '.');
-    }
-
-    async function fetchEvidence() {
-      const owner = document.getElementById('owner').value.trim();
-      const repo = document.getElementById('repo').value.trim();
-      const token = document.getElementById('token').value.trim();
-      const days = document.getElementById('days').value;
-      const status = document.getElementById('status');
-
-      if (!owner || !repo) {
-        status.innerHTML = '<p class="error">Owner and repo are required.</p>';
-        return;
-      }
-
-      saveForm();
-      status.innerHTML = '<p>Fetching' + (days ? '. A longer period can take a minute.' : '.') + '</p>';
-      document.getElementById('summary').innerHTML = '';
-      document.getElementById('filters').style.display = 'none';
-      document.getElementById('results').innerHTML = '';
-
-      try {
-        const res = await fetch('/api/fetch', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ owner, repo, token: token || undefined, days: days || undefined })
-        });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || 'Failed');
-
-        const entry = {
-          collected_at: data.collected_at,
-          owner,
-          repo,
-          count: data.evidence.length,
-          days: data.days || null,
-          since: data.since || null,
-          truncated: !!data.truncated,
-          period: periodLabel(data.days),
-          rule: data.rule || null,
-          access: data.access || null,
-          items: data.evidence
-        };
-        remember(entry);
-
-        status.innerHTML = '<p>Collected at ' + escapeHtml(new Date(data.collected_at).toLocaleString()) + '</p>';
-        showItems(data.evidence, collectionNote(entry), owner + '/' + repo, data.rule, data.access);
-        loadHistory();
-      } catch (err) {
-        status.innerHTML = '<p class="error">Error: ' + escapeHtml(err.message) + '</p>';
-      }
-    }
-
-    function downloadText(filename, text) {
-      const blob = new Blob([text], { type: 'text/plain' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = filename;
-      link.click();
-      URL.revokeObjectURL(link.href);
-    }
-
-    function downloadReport() {
-      const status = document.getElementById('status');
-      if (!currentItems.length) {
-        status.innerHTML = '<p class="error">Nothing to download yet. Fetch a repository first.</p>';
-        return;
-      }
-      const items = visibleItems();
-      const reviewed = currentItems.filter(item => item.has_review && !item.review_unknown).length;
-      const unknown = currentItems.filter(item => item.review_unknown).length;
-      const missing = currentItems.length - reviewed - unknown;
-      const filterName = currentFilter === 'missing' ? 'No review' : (currentFilter === 'reviewed' ? 'Reviewed' : 'All');
-      const lines = [
-        'GitHub review evidence',
-        currentHeading || 'Repository',
-        currentRule && currentRule.detail ? currentRule.detail : 'Branch review rule was not checked.',
-        currentAccess && currentAccess.detail ? currentAccess.detail : 'Who can change the code was not checked.',
-        'Collected: ' + (document.getElementById('status').innerText || ''),
-        currentNote || '',
-        reviewed + ' of ' + currentItems.length + ' reviewed. ' + missing + ' missing a review.' + (unknown ? ' ' + unknown + ' could not be checked.' : ''),
-        'Showing: ' + filterName,
-        ''
-      ];
-      items.forEach(pr => {
-        lines.push('#' + pr.id + ' ' + pr.title);
-        lines.push(reviewLine(pr));
-        lines.push('Merged: ' + new Date(pr.merged_at).toLocaleString());
-        lines.push(pr.url);
-        lines.push('');
-      });
-      if (!items.length) lines.push('Nothing matched this filter.');
-      downloadText('github-evidence-report.txt', lines.filter(line => line !== undefined).join('\n'));
-    }
-
-    function exportEvidence() {
-      const list = loadStored();
-      const status = document.getElementById('status');
-      if (!list.length) {
-        status.innerHTML = '<p class="error">Nothing to export yet.</p>';
-        return;
-      }
-      const latest = list[list.length - 1];
-      const blob = new Blob([JSON.stringify(latest, null, 2)], { type: 'application/json' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'github-evidence.json';
-      link.click();
-      URL.revokeObjectURL(link.href);
-    }
-
-    function loadHistory() {
-      const historyDiv = document.getElementById('history');
-      const history = loadStored();
-      if (!history.length) {
-        historyDiv.innerHTML = '<p>No collections yet. Fetch some evidence first.</p>';
-        return;
-      }
-      let html = '';
-      history.slice().reverse().forEach((entry, idx) => {
-        const index = history.length - 1 - idx;
-        const date = new Date(entry.collected_at).toLocaleString();
-        const reviewed = (entry.items || []).filter(item => item.has_review && !item.review_unknown).length;
-        const label = entry.period || 'Latest 100';
-        html += '<div class="history-item" onclick="showHistoryEntry(' + index + ')">'
-          + '<div class="summary">' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo)
-          + ' — ' + escapeHtml(entry.count) + ' PRs (' + reviewed + ' reviewed)</div>'
-          + '<span class="meta">' + escapeHtml(date) + ' · ' + escapeHtml(label) + '</span>'
-          + '</div>';
-      });
-      historyDiv.innerHTML = html;
-    }
-
-    function showHistoryEntry(index) {
-      const status = document.getElementById('status');
-      const history = loadStored();
-      const entry = history[index];
-      if (!entry) {
-        status.innerHTML = '<p class="error">That collection is no longer saved.</p>';
-        return;
-      }
-      status.innerHTML = '<p>Showing collection from '
-        + escapeHtml(new Date(entry.collected_at).toLocaleString())
-        + ' — ' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + '</p>';
-      showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo, entry.rule, entry.access);
-    }
-
-    async function logout() {
-      await fetch('/api/logout', { method: 'POST' });
-      window.location.href = '/';
-    }
-
-    async function loadAdmin() {
-      const me = await fetch('/api/me');
-      if (!me.ok) {
-        window.location.href = '/login';
-        return;
-      }
-      const user = await me.json();
-      if (user.role !== 'admin') return;
-      document.getElementById('admin').style.display = 'block';
-      document.getElementById('keep-note').textContent = user.requests_kept
-        ? 'Requests are kept even if the site restarts. You also get a GitHub issue for each one.'
-        : 'Requests can disappear if the site restarts. Add GITHUB_TOKEN on Render to keep them.';
-      const res = await fetch('/api/inquiries');
-      const list = await res.json();
-      const box = document.getElementById('inquiries');
-      if (!list.length) {
-        box.innerHTML = '<p>No requests yet.</p>';
-        return;
-      }
-      box.innerHTML = list.slice().reverse().map(item =>
-        '<div class="pr"><strong>' + escapeHtml(item.name) + '</strong> · ' + escapeHtml(item.email)
-        + '<br><span class="meta">' + escapeHtml(item.company || 'No company') + ' · ' + escapeHtml(new Date(item.at).toLocaleString()) + '</span>'
-        + '<br>' + escapeHtml(item.note || '') + '</div>'
-      ).join('');
-    }
-
-    async function createUser() {
-      const status = document.getElementById('user-status');
-      const res = await fetch('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          username: document.getElementById('new-user').value.trim(),
-          password: document.getElementById('new-pass').value
-        })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        status.innerHTML = '<span class="error">' + escapeHtml(data.error || 'Could not create') + '</span>';
-        return;
-      }
-      status.innerHTML = '<span class="ok">Login created. Send them the username and password.</span>';
-      document.getElementById('new-user').value = '';
-      document.getElementById('new-pass').value = '';
-    }
-
-    loadForm();
-    loadHistory();
-    loadAdmin();
+    let currentItems = [], currentFilter = 'all', currentNote = '', currentHeading = '', currentRule = null, currentAccess = null, currentChecks = null;
+    function escapeHtml(value) { return String(value ?? '').replace(/&/g, '&' + 'amp;').replace(/</g, '&' + 'lt;').replace(/>/g, '&' + 'gt;').replace(/"/g, '&' + 'quot;'); }
+    function periodLabel(days) { if (String(days) === '30') return 'Last 30 days'; if (String(days) === '90') return 'Last 90 days'; if (String(days) === '365') return 'Last 12 months'; return 'Latest 100'; }
+    function loadStored() { try { const parsed = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); return Array.isArray(parsed) ? parsed : []; } catch { return []; } }
+    function saveStored(list) { localStorage.setItem(STORAGE_KEY, JSON.stringify(list)); }
+    function remember(entry) { const list = loadStored(); list.push(entry); while (list.length > MAX_HISTORY) list.shift(); saveStored(list); }
+    function loadForm() { try { const saved = JSON.parse(localStorage.getItem(FORM_KEY) || '{}'); if (saved.owner) document.getElementById('owner').value = saved.owner; if (saved.repo) document.getElementById('repo').value = saved.repo; if (saved.token) document.getElementById('token').value = saved.token; if (saved.days !== undefined) document.getElementById('days').value = saved.days; } catch {} }
+    function saveForm() { localStorage.setItem(FORM_KEY, JSON.stringify({ owner: document.getElementById('owner').value.trim(), repo: document.getElementById('repo').value.trim(), token: document.getElementById('token').value.trim(), days: document.getElementById('days').value })); }
+    function clearSaved() { localStorage.removeItem(FORM_KEY); document.getElementById('token').value = ''; document.getElementById('status').innerHTML = '<p>Saved owner, repo, token, and period were cleared from this browser.</p>'; }
+    function renderFinding(id, finding) { const box = document.getElementById(id); if (!finding || !finding.detail) { box.innerHTML = ''; return; } const css = finding.status === 'ok' || finding.status === 'required' ? 'ok' : (finding.status === 'missing' || finding.status === 'not_required' ? 'missing' : 'unknown'); box.innerHTML = '<div class="card"><span class="' + css + '">' + escapeHtml(finding.detail) + '</span></div>'; }
+    function renderRule(rule) { renderFinding('rule', rule); }
+    function renderAccess(access) { renderFinding('access', access); }
+    function renderChecks(checks) { renderFinding('checks', checks); }
+    function toggleNewPass() { const input = document.getElementById('new-pass'); const button = document.getElementById('show-new-pass'); const showing = input.type === 'text'; input.type = showing ? 'password' : 'text'; button.textContent = showing ? 'Show' : 'Hide'; }
+    function reviewLine(pr) { if (pr.review_unknown) return 'Could not check reviews'; if (pr.has_review) return 'Reviewed by ' + ((pr.reviewers || []).join(', ') || 'someone'); return 'No review'; }
+    function renderItems(items) { if (!items || items.length === 0) return '<div class="card"><p>Nothing in this view.</p></div>'; let html = '<div class="card">'; items.forEach(pr => { const text = reviewLine(pr); const css = pr.review_unknown ? 'unknown' : (pr.has_review ? 'ok' : 'missing'); html += '<div class="pr"><strong><a href="' + escapeHtml(pr.url) + '" target="_blank" rel="noopener">#' + escapeHtml(pr.id) + ' ' + escapeHtml(pr.title) + '</a></strong><br><span class="' + css + '">' + escapeHtml(text) + '</span><br><span class="meta">Merged: ' + escapeHtml(new Date(pr.merged_at).toLocaleString()) + '</span></div>'; }); return html + '</div>'; }
+    function visibleItems() { if (currentFilter === 'missing') return currentItems.filter(item => !item.has_review && !item.review_unknown); if (currentFilter === 'reviewed') return currentItems.filter(item => item.has_review && !item.review_unknown); return currentItems; }
+    function setFilter(name) { currentFilter = name; paint(); }
+    function paint() { const filters = document.getElementById('filters'); const summary = document.getElementById('summary'); const results = document.getElementById('results'); const total = currentItems.length; const reviewed = currentItems.filter(item => item.has_review && !item.review_unknown).length; const unknown = currentItems.filter(item => item.review_unknown).length; const missing = total - reviewed - unknown; document.querySelectorAll('#filters button').forEach(button => button.classList.toggle('active', button.dataset.filter === currentFilter)); if (!total) { filters.style.display = 'none'; summary.innerHTML = ''; results.innerHTML = '<div class="card"><p>No merged pull requests found.</p></div>'; return; } filters.style.display = 'block'; let text = '<p><strong>' + reviewed + ' of ' + total + ' reviewed.</strong> ' + missing + ' missing a review.'; if (unknown) text += ' ' + unknown + ' could not be checked.'; if (currentNote) text += '<br><span class="meta">' + escapeHtml(currentNote) + '</span>'; summary.innerHTML = text + '</p>'; results.innerHTML = renderItems(visibleItems()); }
+    function showItems(items, note, heading, rule, access, checks) { currentItems = items || []; currentFilter = 'all'; currentNote = note || ''; currentHeading = heading || ''; currentRule = rule || null; currentAccess = access || null; currentChecks = checks || null; renderRule(currentRule); renderAccess(currentAccess); renderChecks(currentChecks); paint(); }
+    function collectionNote(entry) { const parts = [entry.period || periodLabel(entry.days)]; if (entry.since) parts.push('from ' + new Date(entry.since).toLocaleDateString()); if (entry.truncated) parts.push('Stopped early because there were too many pull requests. Some older ones in this period may be missing.'); return parts.join('. ').replace('..', '.'); }
+    async function fetchEvidence() { const owner = document.getElementById('owner').value.trim(); const repo = document.getElementById('repo').value.trim(); const token = document.getElementById('token').value.trim(); const days = document.getElementById('days').value; const status = document.getElementById('status'); if (!owner || !repo) { status.innerHTML = '<p class="error">Owner and repo are required.</p>'; return; } saveForm(); status.innerHTML = '<p>Fetching' + (days ? '. A longer period can take a minute.' : '.') + '</p>'; document.getElementById('summary').innerHTML = ''; document.getElementById('filters').style.display = 'none'; document.getElementById('results').innerHTML = ''; try { const res = await fetch('/api/fetch', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ owner, repo, token: token || undefined, days: days || undefined }) }); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Failed'); const entry = { collected_at: data.collected_at, owner, repo, count: data.evidence.length, days: data.days || null, since: data.since || null, truncated: !!data.truncated, period: periodLabel(data.days), rule: data.rule || null, access: data.access || null, checks: data.checks || null, items: data.evidence }; remember(entry); status.innerHTML = '<p>Collected at ' + escapeHtml(new Date(data.collected_at).toLocaleString()) + '</p>'; showItems(data.evidence, collectionNote(entry), owner + '/' + repo, data.rule, data.access, data.checks); loadHistory(); } catch (err) { status.innerHTML = '<p class="error">Error: ' + escapeHtml(err.message) + '</p>'; } }
+    function downloadText(filename, text) { const blob = new Blob([text], { type: 'text/plain' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = filename; link.click(); URL.revokeObjectURL(link.href); }
+    function downloadReport() { const status = document.getElementById('status'); if (!currentItems.length) { status.innerHTML = '<p class="error">Nothing to download yet. Fetch a repository first.</p>'; return; } const items = visibleItems(); const reviewed = currentItems.filter(item => item.has_review && !item.review_unknown).length; const unknown = currentItems.filter(item => item.review_unknown).length; const missing = currentItems.length - reviewed - unknown; const filterName = currentFilter === 'missing' ? 'No review' : (currentFilter === 'reviewed' ? 'Reviewed' : 'All'); const lines = ['GitHub review evidence', currentHeading || 'Repository', currentRule && currentRule.detail ? currentRule.detail : 'Branch review rule was not checked.', currentAccess && currentAccess.detail ? currentAccess.detail : 'Who can change the code was not checked.', currentChecks && currentChecks.detail ? currentChecks.detail : 'Tests and force-push rules were not checked.', 'Collected: ' + (document.getElementById('status').innerText || ''), currentNote || '', reviewed + ' of ' + currentItems.length + ' reviewed. ' + missing + ' missing a review.' + (unknown ? ' ' + unknown + ' could not be checked.' : ''), 'Showing: ' + filterName, '']; items.forEach(pr => { lines.push('#' + pr.id + ' ' + pr.title); lines.push(reviewLine(pr)); lines.push('Merged: ' + new Date(pr.merged_at).toLocaleString()); lines.push(pr.url); lines.push(''); }); if (!items.length) lines.push('Nothing matched this filter.'); downloadText('github-evidence-report.txt', lines.filter(line => line !== undefined).join('\n')); }
+    function exportEvidence() { const list = loadStored(); const status = document.getElementById('status'); if (!list.length) { status.innerHTML = '<p class="error">Nothing to export yet.</p>'; return; } const blob = new Blob([JSON.stringify(list[list.length - 1], null, 2)], { type: 'application/json' }); const link = document.createElement('a'); link.href = URL.createObjectURL(blob); link.download = 'github-evidence.json'; link.click(); URL.revokeObjectURL(link.href); }
+    function loadHistory() { const historyDiv = document.getElementById('history'); const history = loadStored(); if (!history.length) { historyDiv.innerHTML = '<p>No collections yet. Fetch some evidence first.</p>'; return; } let html = ''; history.slice().reverse().forEach((entry, idx) => { const index = history.length - 1 - idx; const reviewed = (entry.items || []).filter(item => item.has_review && !item.review_unknown).length; html += '<div class="history-item" onclick="showHistoryEntry(' + index + ')"><div class="summary">' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + ' — ' + escapeHtml(entry.count) + ' PRs (' + reviewed + ' reviewed)</div><span class="meta">' + escapeHtml(new Date(entry.collected_at).toLocaleString()) + ' · ' + escapeHtml(entry.period || 'Latest 100') + '</span></div>'; }); historyDiv.innerHTML = html; }
+    function showHistoryEntry(index) { const history = loadStored(); const entry = history[index]; const status = document.getElementById('status'); if (!entry) { status.innerHTML = '<p class="error">That collection is no longer saved.</p>'; return; } status.innerHTML = '<p>Showing collection from ' + escapeHtml(new Date(entry.collected_at).toLocaleString()) + ' — ' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + '</p>'; showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo, entry.rule, entry.access, entry.checks); }
+    async function logout() { await fetch('/api/logout', { method: 'POST' }); window.location.href = '/'; }
+    async function loadAdmin() { const me = await fetch('/api/me'); if (!me.ok) { window.location.href = '/login'; return; } const user = await me.json(); if (user.role !== 'admin') return; document.getElementById('admin').style.display = 'block'; document.getElementById('keep-note').textContent = user.requests_kept ? 'Requests are kept even if the site restarts. You also get a GitHub issue for each one.' : 'Requests can disappear if the site restarts. Add GITHUB_TOKEN on Render to keep them.'; const res = await fetch('/api/inquiries'); const list = await res.json(); const box = document.getElementById('inquiries'); if (!list.length) { box.innerHTML = '<p>No requests yet.</p>'; return; } box.innerHTML = list.slice().reverse().map(item => '<div class="pr"><strong>' + escapeHtml(item.name) + '</strong> · ' + escapeHtml(item.email) + '<br><span class="meta">' + escapeHtml(item.company || 'No company') + ' · ' + escapeHtml(new Date(item.at).toLocaleString()) + '</span><br>' + escapeHtml(item.note || '') + '</div>').join(''); }
+    async function createUser() { const status = document.getElementById('user-status'); const res = await fetch('/api/users', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: document.getElementById('new-user').value.trim(), password: document.getElementById('new-pass').value }) }); const data = await res.json(); if (!res.ok) { status.innerHTML = '<span class="error">' + escapeHtml(data.error || 'Could not create') + '</span>'; return; } status.innerHTML = '<span class="ok">Login created. Send them the username and password.</span>'; document.getElementById('new-user').value = ''; document.getElementById('new-pass').value = ''; }
+    loadForm(); loadHistory(); loadAdmin();
   </script>
 </body>
 </html>
