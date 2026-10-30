@@ -1,4 +1,5 @@
 const express = require('express');
+const crypto = require('crypto');
 const fetch = require('node-fetch');
 const path = require('path');
 
@@ -7,12 +8,110 @@ const PORT = process.env.PORT || 3000;
 const PERIOD_DAYS = { '30': 30, '90': 90, '365': 365 };
 
 let evidenceHistory = [];
+let inquiries = [];
+const sessions = new Map();
+const users = {
+  admin: {
+    password: process.env.ADMIN_PASSWORD || 'admin-access-2026',
+    role: 'admin'
+  }
+};
 
-app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json());
+app.use(express.static(path.join(__dirname, 'public'), { index: false }));
+
+function parseCookies(req) {
+  const header = req.headers.cookie || '';
+  const out = {};
+  header.split(';').forEach(part => {
+    const [key, ...rest] = part.trim().split('=');
+    if (!key) return;
+    out[key] = decodeURIComponent(rest.join('='));
+  });
+  return out;
+}
+
+function currentUser(req) {
+  const cookies = parseCookies(req);
+  return sessions.get(cookies.sid) || null;
+}
+
+function requireAuth(req, res, next) {
+  const user = currentUser(req);
+  if (!user) {
+    if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Log in first' });
+    return res.redirect('/login');
+  }
+  req.user = user;
+  next();
+}
 
 app.get('/', (req, res) => {
+  if (currentUser(req)) return res.redirect('/app');
+  res.sendFile(path.join(__dirname, 'public', 'landing.html'));
+});
+
+app.get('/login', (req, res) => {
+  if (currentUser(req)) return res.redirect('/app');
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/app', requireAuth, (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
+});
+
+app.get('/index.html', (req, res) => res.redirect('/'));
+
+app.post('/api/inquire', (req, res) => {
+  const name = String(req.body.name || '').trim();
+  const company = String(req.body.company || '').trim();
+  const email = String(req.body.email || '').trim();
+  const note = String(req.body.note || '').trim();
+  if (!name || !email) return res.status(400).json({ error: 'Name and email are required' });
+  inquiries.push({ name, company, email, note, at: new Date().toISOString() });
+  if (inquiries.length > 200) inquiries.shift();
+  res.json({ ok: true });
+});
+
+app.post('/api/login', (req, res) => {
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '');
+  const user = users[username];
+  if (!user || user.password !== password) {
+    return res.status(401).json({ error: 'Wrong username or password' });
+  }
+  const sid = crypto.randomBytes(24).toString('hex');
+  sessions.set(sid, { username, role: user.role });
+  res.setHeader('Set-Cookie', `sid=${sid}; HttpOnly; SameSite=Lax; Path=/; Max-Age=1209600`);
+  res.json({ ok: true, role: user.role });
+});
+
+app.post('/api/logout', (req, res) => {
+  const cookies = parseCookies(req);
+  if (cookies.sid) sessions.delete(cookies.sid);
+  res.setHeader('Set-Cookie', 'sid=; HttpOnly; SameSite=Lax; Path=/; Max-Age=0');
+  res.json({ ok: true });
+});
+
+app.get('/api/me', (req, res) => {
+  const user = currentUser(req);
+  if (!user) return res.status(401).json({ error: 'Not logged in' });
+  res.json(user);
+});
+
+app.get('/api/inquiries', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  res.json(inquiries);
+});
+
+app.post('/api/users', requireAuth, (req, res) => {
+  if (req.user.role !== 'admin') return res.status(403).json({ error: 'Admin only' });
+  const username = String(req.body.username || '').trim();
+  const password = String(req.body.password || '');
+  if (!username || !password) return res.status(400).json({ error: 'Username and password are required' });
+  if (username === 'admin') return res.status(400).json({ error: 'That username is reserved' });
+  users[username] = { password, role: 'user' };
+  res.json({ ok: true });
 });
 
 function githubMessage(text) {
@@ -135,7 +234,7 @@ async function mapPool(items, limit, fn) {
   return out;
 }
 
-app.post('/api/fetch', async (req, res) => {
+app.post('/api/fetch', requireAuth, async (req, res) => {
   const { owner, repo, token } = req.body;
   if (!owner || !repo) {
     return res.status(400).json({ error: 'owner and repo are required' });
@@ -230,7 +329,7 @@ app.post('/api/fetch', async (req, res) => {
   }
 });
 
-app.get('/api/history/:index', (req, res) => {
+app.get('/api/history/:index', requireAuth, (req, res) => {
   const index = parseInt(req.params.index, 10);
   if (isNaN(index) || index < 0 || index >= evidenceHistory.length) {
     return res.status(404).json({ error: 'Not found' });
@@ -238,11 +337,11 @@ app.get('/api/history/:index', (req, res) => {
   res.json(evidenceHistory[index]);
 });
 
-app.get('/api/history', (req, res) => {
+app.get('/api/history', requireAuth, (req, res) => {
   res.json(evidenceHistory);
 });
 
-app.get('/api/export', (req, res) => {
+app.get('/api/export', requireAuth, (req, res) => {
   if (evidenceHistory.length === 0) {
     return res.status(404).json({ error: 'No evidence collected yet' });
   }
