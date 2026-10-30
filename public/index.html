@@ -56,6 +56,7 @@
 
   <div id="status"></div>
   <div id="rule"></div>
+  <div id="access"></div>
   <div id="summary"></div>
   <div id="filters">
     <button type="button" class="filter active" data-filter="all" onclick="setFilter('all')">All</button>
@@ -91,6 +92,7 @@
     let currentNote = '';
     let currentHeading = '';
     let currentRule = null;
+    let currentAccess = null;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -152,14 +154,24 @@
       document.getElementById('status').innerHTML = '<p>Saved owner, repo, token, and period were cleared from this browser.</p>';
     }
 
-    function renderRule(rule) {
-      const box = document.getElementById('rule');
-      if (!rule || !rule.detail) {
+    function renderFinding(id, finding) {
+      const box = document.getElementById(id);
+      if (!finding || !finding.detail) {
         box.innerHTML = '';
         return;
       }
-      const css = rule.status === 'required' ? 'ok' : (rule.status === 'not_required' ? 'missing' : 'unknown');
-      box.innerHTML = '<div class="card"><span class="' + css + '">' + escapeHtml(rule.detail) + '</span></div>';
+      const css = finding.status === 'ok' || finding.status === 'required'
+        ? 'ok'
+        : (finding.status === 'missing' || finding.status === 'not_required' ? 'missing' : 'unknown');
+      box.innerHTML = '<div class="card"><span class="' + css + '">' + escapeHtml(finding.detail) + '</span></div>';
+    }
+
+    function renderRule(rule) {
+      renderFinding('rule', rule);
+    }
+
+    function renderAccess(access) {
+      renderFinding('access', access);
     }
     function reviewLine(pr) {
       if (pr.review_unknown) return 'Could not check reviews';
@@ -226,13 +238,15 @@
       results.innerHTML = renderItems(visibleItems());
     }
 
-    function showItems(items, note, heading, rule) {
+    function showItems(items, note, heading, rule, access) {
       currentItems = items || [];
       currentFilter = 'all';
       currentNote = note || '';
       currentHeading = heading || '';
       currentRule = rule || null;
+      currentAccess = access || null;
       renderRule(currentRule);
+      renderAccess(currentAccess);
       paint();
     }
 
@@ -280,12 +294,13 @@
           truncated: !!data.truncated,
           period: periodLabel(data.days),
           rule: data.rule || null,
+          access: data.access || null,
           items: data.evidence
         };
         remember(entry);
 
         status.innerHTML = '<p>Collected at ' + escapeHtml(new Date(data.collected_at).toLocaleString()) + '</p>';
-        showItems(data.evidence, collectionNote(entry), owner + '/' + repo, data.rule);
+        showItems(data.evidence, collectionNote(entry), owner + '/' + repo, data.rule, data.access);
         loadHistory();
       } catch (err) {
         status.innerHTML = '<p class="error">Error: ' + escapeHtml(err.message) + '</p>';
@@ -316,6 +331,7 @@
         'GitHub review evidence',
         currentHeading || 'Repository',
         currentRule && currentRule.detail ? currentRule.detail : 'Branch review rule was not checked.',
+        currentAccess && currentAccess.detail ? currentAccess.detail : 'Who can change the code was not checked.',
         'Collected: ' + (document.getElementById('status').innerText || ''),
         currentNote || '',
         reviewed + ' of ' + currentItems.length + ' reviewed. ' + missing + ' missing a review.' + (unknown ? ' ' + unknown + ' could not be checked.' : ''),
@@ -382,7 +398,7 @@
       status.innerHTML = '<p>Showing collection from '
         + escapeHtml(new Date(entry.collected_at).toLocaleString())
         + ' — ' + escapeHtml(entry.owner) + '/' + escapeHtml(entry.repo) + '</p>';
-      showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo, entry.rule);
+      showItems(entry.items || [], collectionNote(entry), entry.owner + '/' + entry.repo, entry.rule, entry.access);
     }
 
     async function logout() {
