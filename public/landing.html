@@ -5,8 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Flaike</title>
   <link rel="stylesheet" href="/site.css">
+  <style>
+    .home nav, .home .foot, .home .wrap { max-width: 1280px; }
+    .eyebrow { letter-spacing: 0.14em; text-transform: uppercase; font-size: 0.78rem; font-weight: 700; color: #666; margin: 0 0 18px; }
+    .hero { background: #fff; border-bottom: 1px solid #e6e6e6; }
+    .hero h1 { font-size: 4.2rem; line-height: 1.02; letter-spacing: -0.03em; margin: 0 0 22px; max-width: 16ch; }
+    .hero p { font-size: 1.35rem; line-height: 1.45; color: #333; max-width: 42rem; margin: 0; }
+    .hero .wrap { padding: 88px 24px 72px; }
+    .band { background: #111; color: #fff; }
+    .band .wrap { padding: 56px 24px; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
+    .band h2 { margin: 0 0 6px; font-size: 1.8rem; letter-spacing: -0.02em; }
+    .band p { margin: 0; color: #bbb; font-size: 1.05rem; }
+    .band a { display: inline-block; background: #fff; color: #111; text-decoration: none; padding: 16px 32px; font-weight: 700; font-size: 1.05rem; letter-spacing: 0.02em; }
+    .section { padding: 8px 0 24px; }
+    .section h2 { font-size: 2rem; letter-spacing: -0.02em; margin: 0 0 28px; }
+    .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0; border-top: 1px solid #e6e6e6; border-bottom: 1px solid #e6e6e6; }
+    .cell { padding: 32px 28px; border-right: 1px solid #e6e6e6; background: #fff; }
+    .cell:last-child { border-right: none; }
+    .num { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.12em; color: #888; }
+    .cell h3 { margin: 10px 0 10px; font-size: 1.35rem; letter-spacing: -0.02em; }
+    .cell p { margin: 0; color: #444; font-size: 1.02rem; line-height: 1.5; }
+    .split { display: grid; grid-template-columns: 1fr 1fr; background: #fff; border: 1px solid #e6e6e6; }
+    .split div { padding: 36px 32px; }
+    .split div + div { border-left: 1px solid #e6e6e6; }
+    .split h3 { margin: 0 0 10px; font-size: 1.25rem; }
+    .split p { margin: 0; color: #444; line-height: 1.5; }
+    .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px; }
+    .step { background: #fff; border: 1px solid #e6e6e6; padding: 28px; }
+    .step strong { display: block; font-size: 2rem; letter-spacing: -0.03em; margin-bottom: 8px; }
+    @media (max-width: 800px) {
+      .hero h1 { font-size: 2.6rem; }
+      .grid, .steps, .split, .band .wrap { grid-template-columns: 1fr; display: block; }
+      .cell { border-right: none; border-bottom: 1px solid #e6e6e6; }
+      .band a { margin-top: 18px; }
+    }
+  </style>
 </head>
-<body>
+<body class="home">
   <header>
     <nav>
       <a class="brand" href="/">Flaike</a>
@@ -18,36 +53,70 @@
     </nav>
   </header>
   <main>
-    <section class="card" style="border-radius:0; margin:0; box-shadow:none; border-bottom:1px solid #eee;">
+    <section class="hero">
       <div class="wrap">
-        <h1 style="font-size:2.4rem; line-height:1.15; margin:0 0 16px;">Proof that code changes were reviewed.</h1>
-        <p class="muted" style="font-size:1.15rem;">Flaike checks a GitHub repository and writes down whether changes were looked at, whether a review was required, and whether tests had to pass before the change went in.</p>
+        <p class="eyebrow">Review evidence</p>
+        <h1>Proof that code changes were reviewed.</h1>
+        <p>Flaike reads a GitHub repository and records whether a change was looked at, whether a review was required, and whether the rule could be skipped.</p>
       </div>
     </section>
-    <section class="inquire-block">
+
+    <section class="band">
       <div class="wrap">
-        <h2>Get a login</h2>
-        <p>Tell us what you need. We look at it and get back to you.</p>
+        <div>
+          <h2>Get a login</h2>
+          <p>Send what you need. We look at it and reply. You do not pay on this page.</p>
+        </div>
         <a href="/inquire">Inquire</a>
       </div>
     </section>
-    <section id="product">
+
+    <section id="product" class="section">
       <div class="wrap">
         <h2>What it checks</h2>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
-          <div class="card"><h3>Was it reviewed</h3><p class="muted">For each change that went in, Flaike lists who looked at it, or that nobody did.</p></div>
-          <div class="card"><h3>Was a review required</h3><p class="muted">It checks whether the main branch actually requires a review before a change can be merged.</p></div>
-          <div class="card"><h3>Can the rule be skipped</h3><p class="muted">It notes if an admin can bypass the review, and whether tests and force-push rules are weak.</p></div>
+        <div class="grid">
+          <div class="cell">
+            <div class="num">01</div>
+            <h3>Was it reviewed</h3>
+            <p>For each change that went in, Flaike lists who looked at it, or that nobody did.</p>
+          </div>
+          <div class="cell">
+            <div class="num">02</div>
+            <h3>Was a review required</h3>
+            <p>It checks whether the main branch actually requires a review before a change can be merged.</p>
+          </div>
+          <div class="cell">
+            <div class="num">03</div>
+            <h3>Can the rule be skipped</h3>
+            <p>It notes if an admin can bypass the review, and whether tests or a force push are left open.</p>
+          </div>
         </div>
       </div>
     </section>
-    <section style="background:white; border-top:1px solid #eee;">
+
+    <section class="section">
+      <div class="wrap">
+        <h2>What you get</h2>
+        <div class="split">
+          <div>
+            <h3>A verdict</h3>
+            <p>One line at the top. How many problems, and what they are. Not a pile of raw data you have to read yourself.</p>
+          </div>
+          <div>
+            <h3>A report</h3>
+            <p>A plain file you can send. Each change, who reviewed it, the date, and the link back to the source.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
       <div class="wrap">
         <h2>How it works</h2>
-        <div style="display:grid; grid-template-columns:repeat(auto-fit, minmax(240px, 1fr)); gap:16px;">
-          <div class="card"><h3>1. Ask</h3><p class="muted">You send a request. You do not pay on this page.</p></div>
-          <div class="card"><h3>2. We look</h3><p class="muted">We see what you need and whether it fits.</p></div>
-          <div class="card"><h3>3. You get a login</h3><p class="muted">If it fits, you get a username and password and can run the check yourself.</p></div>
+        <div class="steps">
+          <div class="step"><strong>01</strong><h3>Inquire</h3><p>You send a request. No card. No plan on the page.</p></div>
+          <div class="step"><strong>02</strong><h3>We look</h3><p>We see what you need and whether it fits.</p></div>
+          <div class="step"><strong>03</strong><h3>You get a login</h3><p>If it fits, you get a username and password and run the check yourself.</p></div>
         </div>
       </div>
     </section>
