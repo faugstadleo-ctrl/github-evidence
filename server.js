@@ -29,6 +29,97 @@ function sinceIso(days) {
   return date.toISOString();
 }
 
+async function githubJson(url, headers) {
+  const response = await fetch(url, { headers });
+  const text = await response.text();
+  let body = null;
+  if (text) {
+    try {
+      body = JSON.parse(text);
+    } catch (err) {
+      body = text;
+    }
+  }
+  return { status: response.status, ok: response.ok, body };
+}
+
+async function readReviewRule(owner, repo, headers) {
+  const repoRes = await githubJson(`https://api.github.com/repos/${owner}/${repo}`, headers);
+  if (!repoRes.ok) {
+    return {
+      status: 'unknown',
+      branch: null,
+      required_reviews: null,
+      detail: 'Could not read the repository, so the review rule was not checked.'
+    };
+  }
+
+  const branch = repoRes.body.default_branch || 'main';
+  let required = 0;
+  let saw = false;
+  let blocked = false;
+  let codeOwners = false;
+
+  const rulesHeaders = Object.assign({}, headers, { Accept: 'application/vnd.github+json' });
+  const rulesRes = await githubJson(
+    `https://api.github.com/repos/${owner}/${repo}/rules/branches/${encodeURIComponent(branch)}`,
+    rulesHeaders
+  );
+  if (rulesRes.ok && Array.isArray(rulesRes.body)) {
+    saw = true;
+    rulesRes.body.forEach(rule => {
+      if (rule.type !== 'pull_request' || !rule.parameters) return;
+      const count = Number(rule.parameters.required_approving_review_count || 0);
+      if (count > required) required = count;
+      if (rule.parameters.require_code_owner_review) codeOwners = true;
+    });
+  } else if (rulesRes.status === 401 || rulesRes.status === 403) {
+    blocked = true;
+  }
+
+  const classicRes = await githubJson(
+    `https://api.github.com/repos/${owner}/${repo}/branches/${encodeURIComponent(branch)}/protection/required_pull_request_reviews`,
+    headers
+  );
+  if (classicRes.ok && classicRes.body && typeof classicRes.body === 'object') {
+    saw = true;
+    const count = Number(classicRes.body.required_approving_review_count || 0);
+    if (count > required) required = count;
+    if (classicRes.body.require_code_owner_reviews) codeOwners = true;
+  } else if (classicRes.status === 404) {
+    saw = true;
+  } else if (classicRes.status === 401 || classicRes.status === 403) {
+    blocked = true;
+  }
+
+  const ownerNote = codeOwners ? ' Code owners must still approve changes to files they own.' : '';
+  if (required >= 1) {
+    const word = required === 1 ? 'review' : 'reviews';
+    return {
+      status: 'required',
+      branch,
+      required_reviews: required,
+      code_owner_review: codeOwners,
+      detail: `The ${branch} branch requires at least ${required} approving ${word} before a change can be merged.${ownerNote}`
+    };
+  }
+  if (saw && !blocked) {
+    return {
+      status: 'not_required',
+      branch,
+      required_reviews: 0,
+      code_owner_review: codeOwners,
+      detail: `The ${branch} branch does not require an approving review before a change can be merged.${ownerNote}`
+    };
+  }
+  return {
+    status: 'unknown',
+    branch,
+    required_reviews: null,
+    code_owner_review: null,
+    detail: `Could not fully read the rules for ${branch}. This token cannot see every setting, so a missing review requirement is not proven.`
+  };
+}
 async function mapPool(items, limit, fn) {
   const out = new Array(items.length);
   let cursor = 0;
@@ -60,6 +151,7 @@ app.post('/api/fetch', async (req, res) => {
   if (token) headers['Authorization'] = `token ${token}`;
 
   try {
+    const rulePromise = readReviewRule(owner, repo, headers);
     const pulls = [];
     let truncated = false;
 
@@ -116,6 +208,8 @@ app.post('/api/fetch', async (req, res) => {
       };
     });
 
+    const rule = await rulePromise;
+
     evidenceHistory.push({
       collected_at: collectedAt,
       owner,
@@ -124,11 +218,12 @@ app.post('/api/fetch', async (req, res) => {
       days,
       since,
       truncated,
+      rule,
       items: evidence
     });
     if (evidenceHistory.length > 10) evidenceHistory.shift();
 
-    res.json({ collected_at: collectedAt, evidence, truncated, since, days });
+    res.json({ collected_at: collectedAt, evidence, truncated, since, days, rule });
   } catch (err) {
     const status = err.status || 500;
     res.status(status).json({ error: err.message });
